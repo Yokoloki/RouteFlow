@@ -1,0 +1,128 @@
+{
+   "OFPTableFeaturesStatsReply": {
+      "body": [
+         {
+            "OFPTableFeaturesStats": {
+               "config": 0, 
+               "length": 1112, 
+               "max_entries": 16777216, 
+               "metadata_match": 18446744073709551615, 
+               "metadata_write": 18446744073709551615, 
+               "name": "\u79c1\u306e\u30c6\u30fc\u30d6\u30eb", 
+               "properties": [], 
+               "table_id": 0
+            }
+         }, 
+         {
+            "OFPTableFeaturesStats": {
+               "config": 0, 
+               "length": 1112, 
+               "max_entries": 16777216, 
+               "metadata_match": 18446744073709551615, 
+               "metadata_write": 18446744073709551615, 
+               "name": "Flow Table 0x01", 
+               "properties": [], 
+               "table_id": 1
+            }
+         }, 
+         {
+            "OFPTableFeaturesStats": {
+               "config": 0, 
+               "length": 1104, 
+               "max_entries": 16777216, 
+               "metadata_match": 18446744073709551615, 
+               "metadata_write": 18446744073709551615, 
+               "name": "Flow Table 0x02", 
+               "properties": [], 
+               "table_id": 2
+            }
+         }, 
+         {
+            "OFPTableFeaturesStats": {
+               "config": 0, 
+               "length": 1104, 
+               "max_entries": 16777216, 
+               "metadata_match": 18446744073709551615, 
+               "metadata_write": 18446744073709551615, 
+               "name": "Flow Table 0x03", 
+               "properties": [], 
+               "table_id": 3
+            }
+         }, 
+         {
+            "OFPTableFeaturesStats": {
+               "config": 0, 
+               "length": 1104, 
+               "max_entries": 16777216, 
+               "metadata_match": 18446744073709551615, 
+               "metadata_write": 18446744073709551615, 
+               "name": "Flow Table 0x04", 
+               "properties": [], 
+               "table_id": 4
+            }
+         }, 
+         {
+            "OFPTableFeaturesStats": {
+               "config": 0, 
+               "length": 1104, 
+               "max_entries": 16777216, 
+               "metadata_match": 18446744073709551615, 
+               "metadata_write": 18446744073709551615, 
+               "name": "Flow Table 0x05", 
+               "properties": [], 
+               "table_id": 5
+            }
+         }, 
+         {
+            "OFPTableFeaturesStats": {
+               "config": 0, 
+               "length": 1104, 
+               "max_entries": 16777216, 
+               "metadata_match": 18446744073709551615, 
+               "metadata_write": 18446744073709551615, 
+               "name": "Flow Table 0x06", 
+               "properties": [], 
+               "table_id": 6
+            }
+         }, 
+         {
+            "OFPTableFeaturesStats": {
+               "config": 0, 
+               "length": 1104, 
+               "max_entries": 16777216, 
+               "metadata_match": 18446744073709551615, 
+               "metadata_write": 18446744073709551615, 
+               "name": "Flow Table 0x07", 
+               "properties": [], 
+               "table_id": 7
+            }
+         }, 
+         {
+            "OFPTableFeaturesStats": {
+               "config": 0, 
+               "length": 1104, 
+               "max_entries": 16777216, 
+               "metadata_match": 18446744073709551615, 
+               "metadata_write": 18446744073709551615, 
+               "name": "Flow Table 0x08", 
+               "properties": [], 
+               "table_id": 8
+            }
+         }, 
+         {
+            "OFPTableFeaturesStats": {
+               "config": 0, 
+               "length": 1104, 
+               "max_entries": 16777216, 
+               "metadata_match": 18446744073709551615, 
+               "metadata_write": 18446744073709551615, 
+               "name": "Flow Table 0x09", 
+               "properties": [], 
+               "table_id": 9
+            }
+         }
+      ], 
+      "flags": 2, 
+      "type": 12
+   }
+}
