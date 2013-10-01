@@ -1,6 +1,0 @@
-[submodule "ryu"]
-	path = ryu
-	url = https://github.com/osrg/ryu
-[submodule "ryu-rfproxy"]
-	path = ryu-rfproxy
-	url = https://github.com/routeflow/ryu-rfproxy/
