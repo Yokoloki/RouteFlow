@@ -91,7 +91,6 @@ make rfclient
 
 4. Install `ryu`
 ```
-sudo apt-get install 
 cd ryu
 sudo python ./setup.py install
 ```
