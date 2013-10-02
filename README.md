@@ -1,4 +1,25 @@
 # Welcome
+
+
+RouteFlow fork based on following repositories
+
+
+[RouteFlow](https://github.com/routeflow/RouteFlow.git)
+
+[ryu-rfproxy](https://github.com/joestringer/ryu-rfproxy.git)
+
+[Ryu 3.0](https://github.com/osrg/ryu.git)
+
+
+The modifications were basically:
+* Insert ryu inside RouteFlow
+* Insert ryu-rfproxy inside RouteFlow
+* Update ryu/ryu/topology/switches.py for OpenFlow 1.3 support
+* Update and fix some bugs in ryu-rfproxy/rfproxy.py for OpenFlow 1.3 support
+* Update rflib/defs.py for ofsoftswitch13 support (function is_rfvs for dpid with 12 digits)
+
+
+
 This version of RouteFlow is a beta developers' release intended to evaluate RouteFlow for providing virtualized IP routing services on one or more OpenFlow switches.
 
 You can learn more about RouteFlow in our [main page in GitHub](http://routeflow.github.io/RouteFlow/) and in our [website](https://sites.google.com/site/routeflow/).
@@ -68,7 +89,14 @@ $ git clone git://github.com/routeflow/RouteFlow.git
 make rfclient
 ```
 
-That's it! Now you can run tests 1 and 2. The setup to run them is described in the "Running" section.
+4. Install `ryu`
+```
+sudo apt-get install 
+cd ryu
+sudo python ./setup.py install
+```
+
+That's it! Now you can run test 2. The setup to run them is described in the "Running" section.
 
 # Running
 The folder rftest contains all that is needed to create and run two test cases.
@@ -88,32 +116,15 @@ By default, the tests below will use the LXC containers created  by the `create`
 Default configuration files are provided for these tests in the `rftest` directory (you don't need to change anything).
 You can stops them at any time by pressing CTRL+C.
 
-### rftest1
-1. Run:
-```
-$ sudo ./rftest1
-```
-
-2. You can then log in to the LXC container b1 and try to ping b2:
-```
-$ sudo lxc-console -n b1
-```
-
-3. Inside b1, run:
-```
-# ping 172.31.2.2
-```
-
-For more details on this test, see its [tutorial](https://github.com/routeflow/RouteFlow/wiki/Tutorial-1:-rftest1).
-
 ### rftest2
-This test should be run with a [Mininet](http://mininet.org/) simulated network.
+This test should be run with a [Mininet](http://mininet.org/) simulated network installed with ofsoftswitches13.
+Install mininet accordingly to [OpenFlow-1.3-Tutorial](https://github.com/CPqD/ofsoftswitch13/wiki/OpenFlow-1.3-Tutorial)
 In the steps below, replace [guest address] with the IP address you use to access your Mininet VM.
 The same applies to [host address], that should be the address to access the host from inside the VM.
 
 1. Run:
 ```
-$ sudo ./rftest2
+$ sudo ./rftest2 --ryu
 ```
 
 2. Once you have a Mininet VM up and running, copy the network topology files in rftest to the VM:
@@ -124,7 +135,7 @@ $ scp ipconf mininet@[guest address]:/home/mininet
 
 3. Then start the network:
 ```
-$ sudo mn --custom mininet/custom/topo-4sw-4host.py --topo=rftest2 --controller=remote,ip=[host address],port=6633 --pre=ipconf
+$ sudo mn --custom mininet/custom/topo-4sw-4host.py --topo=rftest2 --switch user --controller=remote,ip=[host address],port=6633 --pre=ipconf
 ```
 
 Wait for the network to converge (it should take a few seconds), and try to ping:
