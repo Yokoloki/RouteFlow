@@ -1,4 +1,4 @@
-# Welcome
+# Welcome to a RouteFlow fork for OpenFlow 1.3 support
 
 
 RouteFlow fork based on following repositories
@@ -81,7 +81,7 @@ sudo apt-get install build-essential git libboost-dev \
 
 2. Clone RouteFlow's repository on GitHub:
 ```
-$ git clone git://github.com/routeflow/RouteFlow.git
+$ git clone git://github.com/raphaelvrosa/RouteFlow.git
 ```
 
 3. Build `rfclient`
