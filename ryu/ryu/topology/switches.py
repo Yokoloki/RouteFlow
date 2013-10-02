@@ -25,7 +25,7 @@ from ryu.controller import ofp_event
 from ryu.controller.handler import set_ev_cls
 from ryu.controller.handler import MAIN_DISPATCHER, DEAD_DISPATCHER
 from ryu.exception import RyuException
-from ryu.lib import addrconv, hub
+from ryu.lib import hub
 from ryu.lib.mac import DONTCARE_STR
 from ryu.lib.dpid import dpid_to_str, str_to_dpid
 from ryu.lib.port_no import port_no_to_str
@@ -73,6 +73,7 @@ class Port(object):
     def is_down(self):
         return (self._state & self._ofproto.OFPPS_LINK_DOWN) > 0 \
             or (self._config & self._ofproto.OFPPC_PORT_DOWN) > 0
+        #return (self._config & self._ofproto.OFPPC_PORT_DOWN) > 0
 
     def is_live(self):
         # NOTE: OF1.2 has OFPPS_LIVE state
@@ -474,6 +475,10 @@ class Switches(app_manager.RyuApp):
         for port in dp.ports.values():
             self.port_state[dp.id].add(port.port_no, port)
 
+    def _register_ports(self, dp, ports):
+        for port in ports:
+            self.port_state[dp.id].add(port.port_no, port)
+
     def _unregister(self, dp):
         if dp.id in self.dps:
             del self.dps[dp.id]
@@ -537,22 +542,39 @@ class Switches(app_manager.RyuApp):
                 # TODO:XXX need other versions
                 if ofproto.OFP_VERSION == ofproto_v1_0.OFP_VERSION:
                     rule = nx_match.ClsRule()
-                    rule.set_dl_dst(addrconv.mac.text_to_bin(
-                                    lldp.LLDP_MAC_NEAREST_BRIDGE))
+                    rule.set_dl_dst(lldp.LLDP_MAC_NEAREST_BRIDGE)
                     rule.set_dl_type(ETH_TYPE_LLDP)
                     actions = [ofproto_parser.OFPActionOutput(
                         ofproto.OFPP_CONTROLLER, self.LLDP_PACKET_LEN)]
                     dp.send_flow_mod(
                         rule=rule, cookie=0, command=ofproto.OFPFC_ADD,
                         idle_timeout=0, hard_timeout=0, actions=actions)
+                
+                elif ofproto.OFP_VERSION == ofproto_v1_3.OFP_VERSION:
+                    match = ofproto_parser.OFPMatch()
+                    match.set_dl_dst(lldp.LLDP_MAC_NEAREST_BRIDGE)
+                    match.set_dl_type(ETH_TYPE_LLDP)
+                    actions = [ofproto_parser.OFPActionOutput(ofproto.OFPP_CONTROLLER, self.LLDP_PACKET_LEN)]
+                    inst = [dp.ofproto_parser.OFPInstructionActions(dp.ofproto.OFPIT_APPLY_ACTIONS, actions)]
+                    m = ofproto_parser.OFPFlowMod(dp, 0, 0, 0,
+                                         dp.ofproto.OFPFC_ADD,
+                                         0, 0, 0xff, 0xffffffff,
+                                         dp.ofproto.OFPP_ANY,
+                                         dp.ofproto.OFPG_ANY,
+                                         0, match, inst)
+                    dp.send_msg(m)
+
+                    msg = dp.ofproto_parser.OFPPortDescStatsRequest(dp, 0)
+                    dp.send_msg(msg)
+                
                 else:
                     LOG.error('cannot install flow. unsupported version. %x',
                               dp.ofproto.OFP_VERSION)
 
-            for port in switch.ports:
-                if not port.is_reserved():
-                    self._port_added(port)
-            self.lldp_event.set()
+            #for port in switch.ports:
+            #    if not port.is_reserved():
+            #        self._port_added(port)
+            #self.lldp_event.set()
 
         elif ev.state == DEAD_DISPATCHER:
             # dp.id is None when datapath dies before handshake
@@ -573,6 +595,7 @@ class Switches(app_manager.RyuApp):
             self.lldp_event.set()
 
     @set_ev_cls(ofp_event.EventOFPPortStatus, MAIN_DISPATCHER)
+
     def port_status_handler(self, ev):
         msg = ev.msg
         reason = msg.reason
@@ -630,6 +653,20 @@ class Switches(app_manager.RyuApp):
                     self._link_down(port)
                 self.lldp_event.set()
 
+    @set_ev_cls(ofp_event.EventOFPMultipartReply, MAIN_DISPATCHER)
+    def on_multipart_reply(self, ev):
+        msg = ev.msg
+        dp = msg.datapath
+        self._register_ports(dp, msg.body)
+        #LOG.info("switchesv13: ports register dpid %s %s", dp.id, msg.body)
+        switch = self._get_switch(dp.id)
+        LOG.debug('register %s', switch)
+        self.send_event_to_observers(event.EventSwitchEnter(switch))
+        for port in switch.ports:
+            if not port.is_reserved():
+                self._port_added(port)
+        self.lldp_event.set()
+
     @staticmethod
     def _drop_packet(msg):
         buffer_id = msg.buffer_id
@@ -640,6 +677,12 @@ class Switches(app_manager.RyuApp):
         # TODO:XXX
         if dp.ofproto.OFP_VERSION == ofproto_v1_0.OFP_VERSION:
             dp.send_packet_out(buffer_id, msg.in_port, [])
+        elif dp.ofproto.OFP_VERSION == ofproto_v1_3.OFP_VERSION:
+            for f in msg.match.fields:
+                if f.header == ofproto_v1_3.OXM_OF_IN_PORT:
+                    in_port = f.value
+                    break
+            dp.send_packet_out(buffer_id=buffer_id, in_port=in_port, actions=[])
         else:
             LOG.error('cannot drop_packet. unsupported version. %x',
                       dp.ofproto.OFP_VERSION)
@@ -717,6 +760,9 @@ class Switches(app_manager.RyuApp):
         if dp.ofproto.OFP_VERSION == ofproto_v1_0.OFP_VERSION:
             actions = [dp.ofproto_parser.OFPActionOutput(port.port_no)]
             dp.send_packet_out(actions=actions, data=port_data.lldp_data)
+        elif dp.ofproto.OFP_VERSION == ofproto_v1_3.OFP_VERSION:
+            actions = [dp.ofproto_parser.OFPActionOutput(port.port_no, len(port_data.lldp_data))]
+            dp.send_packet_out(in_port=dp.ofproto.OFPP_ANY, actions=actions, data=port_data.lldp_data)
         else:
             LOG.error('cannot send lldp packet. unsupported version. %x',
                       dp.ofproto.OFP_VERSION)

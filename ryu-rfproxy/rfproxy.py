@@ -1,5 +1,9 @@
 import struct
 import logging
+import sys
+import os
+sys_path = os.path.abspath('.') 
+sys.path.append(sys_path)
 
 import pymongo as mongo
 
@@ -164,8 +168,9 @@ class RFProxy(app_manager.RyuApp):
         msg = ev.msg
         dp = msg.datapath
         dpid = dp.id
-        pkt, _ = ethernet.parser(msg.data)
-
+        pkt_ethernet = ethernet.parser(msg.data)
+        pkt = pkt_ethernet[0]
+        
         for f in msg.match.fields:
             if f.header == dp.ofproto.OXM_OF_IN_PORT:
                 in_port = f.value
@@ -192,10 +197,10 @@ class RFProxy(app_manager.RyuApp):
                     log.debug("forwarding packet from rfvs (vs_id: %s, "
                              "vs_port: %d)", dpid_to_str(dp_id), dp_port)
                 else:
-                    log.warn("dropped packet from rfvs (vs_id: %s, "
+                    log.debug("dropped packet from rfvs (vs_id: %s, "
                              "vs_port: %d)", dpid_to_str(dp_id), dp_port)
             else:
-                log.info("Unmapped RFVS port (vs_id=%s, vs_port=%d)",
+                log.debug("Unmapped RFVS port (vs_id=%s, vs_port=%d)",
                          dpid_to_str(dpid), in_port)
         # If the packet came from a switch, redirect it to the right RFVS port
         else:
@@ -208,8 +213,8 @@ class RFProxy(app_manager.RyuApp):
                     log.debug("forwarding packet to rfvs (dp_id: %s, "
                               "dp_port: %d)", dpid_to_str(vs_id), vs_port)
                 else:
-                    log.warn("dropped packet to rfvs (dp_id: %s, "
+                    log.debug("dropped packet to rfvs (dp_id: %s, "
                              "dp_port: %d)", dpid_to_str(dp_id), dp_port)
             else:
-                log.info("Unmapped datapath port (dp_id=%s, dp_port=%d)",
+                log.debug("Unmapped datapath port (dp_id=%s, dp_port=%d)",
                          dpid_to_str(dpid), in_port)
