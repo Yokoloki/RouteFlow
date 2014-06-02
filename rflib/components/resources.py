@@ -618,9 +618,7 @@ class TopoVirtual(Topology):
         return self.vms
 
     def get_unmapped_vms(self):
-        #Currently map_dpids is not used so we use map_virtual_plane instead
-        #mapped_vmids = set(reduce(lambda x, y: x+y, self.map_dpids.values(), []))
-        mapped_vmids = set(map(lambda x: x[0], self.map_virtual_plane.values()))
+        mapped_vmids = set(reduce(lambda x, y: x+y, self.map_dpids.values(), []))
         unmapped_items = filter(lambda x: x[0] not in mapped_vmids, self.vms.items())
         unmapped_vms = dict(unmapped_items)
         return unmapped_vms
