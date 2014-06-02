@@ -4,7 +4,6 @@ import threading
 
 from rflib.defs import *
 from rflib.components.modifiers import *
-
 def net_addr(ip, mask):
     net_addr_bin = []
     ip_split = ip.split('.')
@@ -21,7 +20,7 @@ class Port(object):
         super(Port, self).__init__()
         self.id = id
         self.port = port_no
-        
+
     def __eq__(self, other):
         return self.id == other.id and self.port == other.port
 
@@ -40,13 +39,13 @@ class Link(object):
 
     def has_node(self, other):
         eq = False
-        
+
         if other.src:
             eq = (self.src == other.src)
         if other.dst:
             eq = (self.dst == other.dst)
         return eq
-    
+
     def __eq__(self, other):
         return self.src == other.src and self.dst == other.dst
 
@@ -71,7 +70,7 @@ class Topology(object):
 
     def set_topo_id(self, value):
         self.topo_id = value
-        
+
     def buildTopoPhysical(self):
         if self.topo.graph['topology'] != 'physical':
             return False
@@ -93,7 +92,7 @@ class Topology(object):
             else:
                 self.topo.remove_edge(src.id, dst.id)
                 self.topo.add_edges_from( [(src.id, dst.id)], data_ )
-        #TODO topology update and check links removal 
+        #TODO topology update and check links removal
         for (src, dst, data_) in self.topo.edges(data=True):
             srcport = data_['src_port']
             dstport = data_['dst_port']
@@ -130,7 +129,7 @@ class Topology(object):
             self.buildTopoVirtual()
 
     def check_topo_conection(self):
-        return nx.is_connected(self.topo)        
+        return nx.is_connected(self.topo)
 
 
 class Datapath():
@@ -154,7 +153,7 @@ class Datapath():
         self.meters[meter_id] = {'bands':[]}
         self.meter_ids += 1
         return meter_id
-        
+
     def remove_meter(self, meter_id):
         if meter_id in self.meters.keys():
             del self.meters[meter_id]
@@ -167,7 +166,7 @@ class Datapath():
             if meter not in self.meters[meter_id]['bands']:
                 self.meters[meter_id]['bands'].append(meter)
             return True
-        
+
     def remove_meter_band(self, meter_id, meter_type='drop'):
         if meter_id in self.meters.keys():
             meters = [meter for meter in self.meters[meter_id]['bands'] if meter['meter_type']==meter_type]
@@ -175,17 +174,17 @@ class Datapath():
                 self.meters[meter_id]['bands'].remove(meter[0])
             return True
         return False
-    
+
     def get_groups(self):
         return self.groups
-    
+
     def add_group(self, group_type='select'):
         group = {'group_type':group_type, 'buckets':[], 'actions':{}, 'bucket_actions_id':1}
         group_id = self.group_ids
         self.group_ids += 1
         self.groups[group_id] = group
         return group_id
-         
+
     def remove_group(self, group_id):
         if group_id in self.groups.keys():
             del self.groups[group_id]
@@ -202,7 +201,7 @@ class Datapath():
             self.groups[group_id]['buckets'].append(group_bucket)
             return True
         return False
-         
+
     def remove_group_bucket(self, group_id, port, bucket_weight=1, watch_port=None, watch_group=None, bucket_actions_id=None):
         group_bucket = {'port':port, 'bucket_weight':bucket_weight, 'watch_port':watch_port,
                         'watch_group':watch_group, 'bucket_actions_id':bucket_actions_id}
@@ -234,11 +233,11 @@ class Datapath():
             flow['options']['dp_id'] = self.dpid
             flow['options']['table_id'] = table_id
             flow_add = {}
-            flow_add.update(flow)            
+            flow_add.update(flow)
             if dst_port in self.ports:
                 if not dst_port in self.flows.keys():
                     self.flows[dst_port] = []
-                if flow_add not in self.flows[dst_port]: 
+                if flow_add not in self.flows[dst_port]:
                     self.flows[dst_port].append(flow_add)
 
     def remove_flows(self, ct_id, flows):
@@ -255,7 +254,7 @@ class Datapath():
                     if not self.flows[dst_port]:
                         del self.flows[dst_port]
             return True
-    
+
     def update_flow(self, flow, update_item, update_value):
         dst_port = flow['actions']['dst_port']
         if flow in self.flows[dst_port]:
@@ -268,7 +267,7 @@ class Datapath():
 
     def get_flows(self):
         return self.flows
-    
+
     def get_flows_by_port(self,port):
         return self.flows.get(port, None)
 
@@ -314,7 +313,7 @@ class TopoPhysical(Topology):
             return self.map_vmids[vmid]
         else:
             return None
-    
+
     def get_map_vmids(self):
         return self.map_vmids
 
@@ -436,7 +435,7 @@ class TopoPhysical(Topology):
     def get_dp_controller(self, dpid):
         if dpid in self.dps.keys():
             return self.get_ct_id()
-    
+
     def get_dp_flows(self, dpid, port=None):
         if port:
             return self.dps[dpid].get_flows_by_port(port)
@@ -448,52 +447,52 @@ class TopoPhysical(Topology):
 
     def get_dp_flows_by_address(self, dpid, address=None):
         return self.dps[dpid].get_flows_by_address(address=address)
-    
+
     def update_dp_flow(self, dpid, flow, update_item, update_value):
         if dpid in self.dps.keys():
             if self.dps[dpid].update_flow(flow, update_item, update_value):
                 return True
         return False
-    
-    def dp_meter(self, dpid, meter_id=None, rate=0, burst=0, meter_type='drop', 
-                 prec_level=None, experimenter=None, add_rem=True): 
+
+    def dp_meter(self, dpid, meter_id=None, rate=0, burst=0, meter_type='drop',
+                 prec_level=None, experimenter=None, add_rem=True):
         if dpid in self.dps.keys():
             if add_rem:
                 return self.dps[dpid].add_meter()
             else:
                 return self.dps[dpid].remove_meter(meter_id)
 
-    def dp_meter_bands(self, dpid, meter_id=None, rate=0, burst=0, meter_type='drop', 
-                 prec_level=None, experimenter=None, add_rem=True): 
+    def dp_meter_bands(self, dpid, meter_id=None, rate=0, burst=0, meter_type='drop',
+                 prec_level=None, experimenter=None, add_rem=True):
         if dpid in self.dps.keys():
             if add_rem:
                 return self.dps[dpid].add_meter_band(meter_id, rate, burst=burst, prec_level=None, experimenter=None, meter_type=meter_type)
             else:
                 return self.dps[dpid].remove_meter_band(meter_id, meter_type=meter_type)
 
-    def dp_group(self, dpid, group_id=None, group_type='select', add_rem=True): 
+    def dp_group(self, dpid, group_id=None, group_type='select', add_rem=True):
         if dpid in self.dps.keys():
             if add_rem:
                 return self.dps[dpid].add_group(group_type=group_type)
             else:
                 return self.dps[dpid].remove_group(group_id)
-            
-    def dp_group_buckets(self, dpid, group_id=None, port=None, bucket_weight=1, 
-                         watch_port=None, watch_group=None, bucket_actions=None, add_rem=True): 
+
+    def dp_group_buckets(self, dpid, group_id=None, port=None, bucket_weight=1,
+                         watch_port=None, watch_group=None, bucket_actions=None, add_rem=True):
         if dpid in self.dps.keys():
             if add_rem:
-                return self.dps[dpid].add_group_bucket(self, group_id, port, bucket_weight=bucket_weight, 
-                                                       watch_port=watch_port, watch_group=watch_group, 
+                return self.dps[dpid].add_group_bucket(self, group_id, port, bucket_weight=bucket_weight,
+                                                       watch_port=watch_port, watch_group=watch_group,
                                                        bucket_actions=bucket_actions)
             else:
-                return self.dps[dpid].remove_group_bucket(self, group_id, port, bucket_weight=bucket_weight, 
+                return self.dps[dpid].remove_group_bucket(self, group_id, port, bucket_weight=bucket_weight,
                                                           watch_port=watch_port, watch_group=watch_group,
                                                           bucket_actions=bucket_actions)
-            
+
     def get_dp_meters(self, dpid):
         if dpid in self.dps.keys():
             self.dps[dpid].get_meters()
-    
+
     def get_dp_groups(self, dpid):
         if dpid in self.dps.keys():
             self.dps[dpid].get_groups()
@@ -507,7 +506,7 @@ class VM():
         self.addresses = []
         if intfs:
             self.add_intfs(intfs)
-            
+
     def add_intfs(self, intfs):
         intfsname = intfs['name']
         intfsnum = intfs['vm_port']
@@ -518,7 +517,7 @@ class VM():
         if intfsnum not in self.intfs.keys():
             self.intfs[intfsnum] = {'name':intfsname, 'hwaddress':hwaddress, 'address':ipaddr, 'netmask':mask, 'netaddress':netaddress}
             self.add_address(ipaddr)
-            
+
     def remove_intfs(self, intfsnum):
         if intfsnum in self.intfs.keys():
             del self.intfs[intfsnum]
@@ -529,14 +528,14 @@ class VM():
             return True
         else:
             return False
-    
+
     def get_intf_by_address(self, address):
         if address in self.addresses:
             for intfnum in self.intfs.keys():
                 if self.intfs[intfnum]['address'] == address:
                     return self.intfs[intfnum]
         return None
-        
+
     def add_address(self, address):
         if address not in self.addresses:
             self.addresses.append(address)
@@ -558,7 +557,7 @@ class VM():
             self.routes[dst_port] = [ route_add ]
             return True
         else:
-            if route_add not in self.routes[dst_port]: 
+            if route_add not in self.routes[dst_port]:
                 self.routes[dst_port].append( route_add )
                 return True
         return False
@@ -575,7 +574,7 @@ class VM():
         return False
 
     def get_routes(self):
-        return self.routes    
+        return self.routes
 
     def get_routes_by_port(self, port):
         return self.routes.get(port,None)
@@ -614,10 +613,17 @@ class TopoVirtual(Topology):
         self.map_data_virtual_planes = {}   #Mapping '(dpid,dport)':(vmid, vmport)
         self.map_virtual_plane = {}         #Mapping '(vsid,vsport)':(vmid,vmport)
         self.map_dpids = {}
-    
-    #TODO get unmapped vms
+
     def get_vms(self):
         return self.vms
+
+    def get_unmapped_vms(self):
+        #Currently map_dpids is not used so we use map_virtual_plane instead
+        #mapped_vmids = set(reduce(lambda x, y: x+y, self.map_dpids.values(), []))
+        mapped_vmids = set(map(lambda x: x[0], self.map_virtual_plane.values()))
+        unmapped_items = filter(lambda x: x[0] not in mapped_vmids, self.vms.items())
+        unmapped_vms = dict(unmapped_items)
+        return unmapped_vms
 
     def get_links(self):
         return self.links
@@ -699,14 +705,14 @@ class TopoVirtual(Topology):
     def get_vm_routes_by_address(self, vmid, address=None):
         if vmid in self.vms.keys():
             return self.vms[vmid].get_routes_by_address(address=address)
-    
+
     def get_vm_intf(self, vmid, intf_number=None):
         if vmid in self.vms.keys():
             if intf_number:
                 return self.vms[vmid].get_intfs_by_number(intf_number)
             else:
                 return self.vms[vmid].get_intfs()
-            
+
     def register_link(self, src_vmid, src_intf, dst_vmid, dst_intf, vsid_src=None, vsid_src_port=None, vsid_dst=None, vsid_dst_port=None):
         src = Port(src_vmid, src_intf)
         dst = Port(dst_vmid, dst_intf)
@@ -747,10 +753,10 @@ class Topologies():
 
     def register_topology(self, topo_id, topo_type, ct_id=None):
         if topo_type == "physical":
-            if topo_id not in self.physical_topologies.keys(): 
+            if topo_id not in self.physical_topologies.keys():
                 topo_phy = TopoPhysical(topo_id, ct_id)
                 self.physical_topologies[topo_id] = topo_phy
-            
+
         if topo_type == "virtual":
             if topo_id not in self.virtual_topologies.keys():
                 topo_virt = TopoVirtual(topo_id)
@@ -767,10 +773,10 @@ class Topologies():
 
     def get_physical_topologies(self):
         return self.physical_topologies
-    
+
     def get_virtual_topologies(self):
         return self.virtual_topologies
-    
+
     def modify_virtual_topology(self, topo_virt, msg):
         msg_type =  msg.get_type()
         if msg_type == INTERFACE_REGISTER:
@@ -798,7 +804,7 @@ class Topologies():
                                        msg.get_dp_dst_id(), msg.get_dp_dst_port())
         if msg_type == DATA_PLANE_MAP:
             topo_phy.register_map_data_plane(msg.get_vs_id(), msg.get_vs_port(),
-                                             msg.get_dp_id(), msg.get_dp_port())            
+                                             msg.get_dp_id(), msg.get_dp_port())
 
     def modify_physical_topology_mapping(self, topo_phy, vs_id, vs_port, vm_id, vm_port):
         topo_phy_map_data_plane = topo_phy.get_map_data_plane()
@@ -845,7 +851,7 @@ class Topologies():
                         dpid,dpport = map_virtual_data_planes_topo_phy[(vmid_src, int(intf_number))]
                         dp_pair = topo_phy.get_link_pair(dpid, dpport)
                         if dp_pair:
-                            dpids_connected.append( (dp_pair.id, dp_pair.port ) )                            
+                            dpids_connected.append( (dp_pair.id, dp_pair.port ) )
                 for route in vmid_src_routes:
                     if (vmid_src, int(route['actions']['dst_port'])) in map_virtual_data_planes_topo_phy.keys():
                         dpid_src,dpport_src = map_virtual_data_planes_topo_phy[(vmid_src, int(route['actions']['dst_port']))]
@@ -858,7 +864,7 @@ class Topologies():
                             elif dpid_src != link.dst.id:
                                 dpid_dst = link.dst.id
                                 dpport_dst = link.dst.port
-                        
+
                             if (dpid_dst,dpport_dst) in map_virtual_data_planes_topo_virt.keys():
                                 vmid_dst, vmport_dst = map_virtual_data_planes_topo_virt[(dpid_dst,dpport_dst)]
                                 if vmid_dst not in vms_queue and vmid_dst not in vms_visited:
@@ -869,23 +875,23 @@ class Topologies():
                 if not vmid_conectivity:
                     return False
         topo_phy.buildTopoPhysical()
-        return True    
-    
+        return True
+
     def check_virtual_topology_connectivity(self, topo_virt):
         links_topovirt = topo_virt.get_links()
         topo_virt_map_virtual_plane = topo_virt.get_map_virtual_plane()
         connectivity = False
-        
+
         for link_virt in links_topovirt.keys():
-            (src_vmid, src_intf) = link_virt.src.id, link_virt.src.port 
+            (src_vmid, src_intf) = link_virt.src.id, link_virt.src.port
             (dst_vmid, dst_intf) = link_virt.dst.id, link_virt.dst.port
 
             if (src_vmid, src_intf) in topo_virt_map_virtual_plane.values() \
             and (dst_vmid, dst_intf) in topo_virt_map_virtual_plane.values():
-        
+
                 vsid_src,vsid_src_port = topo_virt_map_virtual_plane.keys()[topo_virt_map_virtual_plane.values().index( (src_vmid, src_intf) )]
                 vsid_dst,vsid_dst_port = topo_virt_map_virtual_plane.keys()[topo_virt_map_virtual_plane.values().index( (dst_vmid, dst_intf) )]
-            
+
                 if (vsid_src,vsid_src_port) and (vsid_dst,vsid_dst_port):
                     connectivity = True
                 else:
