@@ -5,21 +5,9 @@ if [ "$EUID" != "0" ]; then
   exit 1
 fi
 
-ACTION=""
-case "$1" in
---ryu)
-    ACTION="RYU"
-    ;;
-*)
-    echo "Invalid argument: $1"
-    echo "Options: "
-    echo "    --ryu: run using RYU"
-    exit
-    ;;
-esac
+ACTION="RYU"
 
-
-SCRIPT_NAME="rftest2"
+SCRIPT_NAME="rftest2_ryu"
 LXCDIR=/var/lib/lxc
 MONGODB_CONF=/etc/mongodb.conf
 MONGODB_PORT=27017
@@ -180,7 +168,7 @@ echo_bold "---"
 echo_bold "This test is up and running."
 echo_bold "Start Mininet:"
 echo_bold "  $ sudo mn --custom mininet/custom/topo-4sw-4host.py --topo=rftest2"
-echo_bold "    --controller=remote,ip=[host address],port=6633 --pre=ipconf"
+echo_bold "    --controller=remote,ip=[host address],port=6653 --pre=ipconf"
 echo_bold "Replace [host address] with the address of this host's interface "
 echo_bold "connected to the Mininet VM."
 echo_bold "Then try pinging everything:"
