@@ -10,7 +10,7 @@ from rflib.ipc.RFProtocol import *
 class RouteMods():
     def __init__(self):
         self.id_ = 1
-        
+
     def unpack_matches(self, route, matches):
         route_matches = {}
         route_matches_types = []
@@ -60,7 +60,7 @@ class RouteMods():
                 log.warning("Failed to serialise Match (type: %s)" % match._type)
         route['matches'] = route_matches
         route['matches_types'] = route_matches_types
-            
+
     def unpack_actions(self, route, action_tlvs):
         route_actions = {}
         route_action_types = []
@@ -96,7 +96,7 @@ class RouteMods():
                 log.warning("Failed to serialise Action (type: %s)" % action._type)
         route['actions'] = route_actions
         route['actions_types'] = route_action_types
-    
+
     def unpack_instructions(self, route, instruction_tlvs):
         route_instructions = {}
         route_instructions_types = []
@@ -150,7 +150,7 @@ class RouteMods():
                 log.warning("Failed to serialise Option (type: %s)" % option._type)
         route['options'] = route_options
         route['options_types'] = route_options_types
-        
+
     def pack_matches(self, routemod, route):
         route_matches = route['matches']
         route_matches_types = route['matches_types']
@@ -189,7 +189,7 @@ class RouteMods():
             elif match_type == RFMT_IN_PORT:
                 in_port = route_matches['in_port']
                 routemod.add_match(Match.IN_PORT(in_port))
-            
+
     def pack_actions(self, routemod, route):
         route_actions = route['actions']
         route_actions_types = route['actions_types']
@@ -198,7 +198,7 @@ class RouteMods():
                 port = route_actions['dst_port']
                 routemod.add_action(Action.OUTPUT(port))
             elif action_type == RFAT_SET_ETH_SRC:
-                srcMac = route_actions['src_hwaddress'] 
+                srcMac = route_actions['src_hwaddress']
                 routemod.add_action(Action.SET_ETH_SRC(srcMac))
             elif action_type == RFAT_SET_ETH_DST:
                 dstMac = route_actions['dst_hwaddress']
@@ -212,7 +212,7 @@ class RouteMods():
             elif action_type == RFAT_POP_MPLS:
                 ethertype = route_actions['ethertype']
                 routemod.add_action(Action.POP_MPLS(ethertype))
-    
+
     def pack_instructions(self, routemod, route):
         route_instructions = route['instructions']
         route_instructions_types = route['instructions_types']
@@ -233,7 +233,7 @@ class RouteMods():
             elif instruction_type == RFIT_GO_TABLE:
                 next_table_id = route_instructions['next_table_id']
                 routemod.add_instructions(Instruction.GO_TABLE(next_table_id))
-            
+
     def pack_options(self, routemod, route):
         route_options = route['options']
         route_options_types = route['options_types']
@@ -286,8 +286,8 @@ class RouteMods():
         if not "matches_types" in route.keys():
             route["matches_types"] = route_matches_types
         else:
-            route["matches_types"].extend( [ match for match in route_matches_types if match not in route["matches_types"] ] )   
-                
+            route["matches_types"].extend( [ match for match in route_matches_types if match not in route["matches_types"] ] )
+
     def apply_route_actions(self, route, actions):
         if not "actions" in route.keys():
             route["actions"] = {}
@@ -307,15 +307,15 @@ class RouteMods():
                 route_actions_types.append(RFAT_GROUP)
             if action == "label":
                 route["actions"]["label"] = actions[action]
-                route_actions_types.append(RFAT_PUSH_MPLS) 
+                route_actions_types.append(RFAT_PUSH_MPLS)
             if action == "ethertype":
                 route["actions"]["ethertype"] = actions[action]
-                route_actions_types.append(RFAT_POP_MPLS) 
+                route_actions_types.append(RFAT_POP_MPLS)
         if not "actions_types" in route.keys():
             route["actions_types"] = route_actions_types
         else:
             route["actions_types"].extend( [ action for action in route_actions_types if action not in route["actions_types"] ] )
-     
+
     def apply_route_instructions(self, route, instructions):
         if not "instructions" in route.keys():
             route["instructions"] = {}
@@ -362,7 +362,7 @@ class RouteMods():
                 route_options_types.append(RFOT_TABLE)
             if option == "ct_id":
                 route["options"]["ct_id"] = options[option]
-                route_options_types.append(RFOT_CT_ID) 
+                route_options_types.append(RFOT_CT_ID)
         if not "options_types" in route.keys():
             route["options_types"] = route_options_types
         else:
@@ -372,7 +372,7 @@ class RouteMods():
 class GroupMods():
     def __init__(self):
         self.id_ = 2
-    
+
     def pack_group_buckets(self, groupmod, group_buckets, group_actions):
         for group_bucket in group_buckets:
             group_bucket_id = groupmod.add_group_bucket()
@@ -384,7 +384,7 @@ class GroupMods():
             groupmod.add_group_bucket_attribs(group_bucket_id, Group.SET_WATCH_PORT(watch_port))
             groupmod.add_group_bucket_attribs(group_bucket_id, Group.SET_WATCH_GROUP(watch_group))
             groupmod.add_group_bucket_attribs(group_bucket_id, Group.SET_ACTIONS(bucket_actions_id))
-            
+
     def pack_group_actions(self, groupmod, group_actions):
         for action_id in group_actions.keys():
             action = group_actions[action_id]
@@ -407,14 +407,14 @@ class GroupMods():
                 ethertype = group_actions[action_id][action]
                 groupmod.add_group_bucket_action_attribs(action_id, Action.POP_MPLS(ethertype))
 
-        
+
 class MeterMods():
     def __init__(self):
         self.id_ = 3
-        
+
     def pack_meter_bands(self, metermod, meters):
         for meter in meters:
-            meter_type = meters['meter_type'] 
+            meter_type = meters['meter_type']
             if meter_type == Meter._TYPE_DROP:
                 meter_rate = meter['rate']
                 meter_burst_size = meter['burst']
@@ -447,9 +447,9 @@ class Modifiers():
         self.routemods.unpack_matches(route, routemod.get_matches())
         self.routemods.unpack_actions(route, routemod.get_actions())
         self.routemods.unpack_instructions(route, routemod.get_instructions())
-        self.routemods.unpack_options(route, routemod.get_options())        
+        self.routemods.unpack_options(route, routemod.get_options())
         return route
-    
+
     def convert_route_to_routemod(self, route):
         routemod = RouteMod()
         self.routemods.pack_matches(routemod, route)
@@ -467,7 +467,7 @@ class Modifiers():
             self.routemods.apply_route_options(flow, options)
             flows_configured.append(flow)
         return flows_configured
-    
+
     def pack_physical_topology_flows(self, flows):
         flows_packed = []
         for flow in flows:
@@ -478,7 +478,7 @@ class Modifiers():
             self.routemods.pack_options(routemod, flow)
             flows_packed.append(routemod)
         return flows_packed
-    
+
     def pack_physical_topology_groups(self, groups):
         groups_packed = []
         for group_id in groups.keys():
@@ -490,7 +490,7 @@ class Modifiers():
             self.groupmods.pack_group_actions(groupmod, group['actions'])
             groups_packed.append(groupmod)
         return groups_packed
-    
+
     def pack_physical_topology_meters(self, meters):
         meters_packed = []
         for meter_id in meters.keys():
@@ -499,7 +499,7 @@ class Modifiers():
             self.metermods.pack_meter_bands(metermod, meter['bands'])
             meters_packed.append(metermod)
         return meters_packed
-    
+
     def convert_physical_topology_flows(self, flows, options):
         flows_converted = []
         for flow in flows:

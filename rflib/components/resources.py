@@ -774,8 +774,8 @@ class Topologies():
 
         if topo_type == 'vir':
             if topo_id not in self.vir_topos.keys():
-                topo_virt = TopoVirtual(topo_id)
-                self.vir_topos[topo_id] = topo_virt
+                topo_vir = TopoVirtual(topo_id)
+                self.vir_topos[topo_id] = topo_vir
 
     def get_topo(self, topo_id, topo_type):
         if topo_type == 'vir':
@@ -792,17 +792,17 @@ class Topologies():
     def get_vir_topos(self):
         return self.vir_topos
 
-    def mod_vir_topo(self, topo_virt, msg):
+    def mod_vir_topo(self, topo_vir, msg):
         msg_type =  msg.get_type()
         if msg_type == INTERFACE_REGISTER:
-            topo_virt.reg_vm(msg.get_vm_id(), msg.to_dict())
+            topo_vir.reg_vm(msg.get_vm_id(), msg.to_dict())
         if msg_type == VIRTUAL_PLANE_MAP:
-            topo_virt.reg_map_vs_vm_port(msg.get_vs_id(), msg.get_vs_port(),
+            topo_vir.reg_map_vs_vm_port(msg.get_vs_id(), msg.get_vs_port(),
                     msg.get_vm_id(), msg.get_vm_port())
         if msg_type == ROUTE_MOD:
             route = self.modifiers.convert_routemod_to_route(msg)
             is_removal = True if msg.get_mod()==1 else False
-            topo_virt.update_vm(msg.get_id(), intfs=None, routes=route, is_removal=is_removal)
+            topo_vir.update_vm(msg.get_id(), intfs=None, routes=route, is_removal=is_removal)
 
     def mod_phy_topo(self, topo_phy, msg):
         msg_type =  msg.get_type()
@@ -827,11 +827,11 @@ class Topologies():
             dp_id,dp_port = topo_phy_map_vs_dp_port[(vs_id,vs_port)]
             topo_phy.reg_map_vm_dp_port(vm_id, vm_port, dp_id, dp_port)
 
-    def mod_vir_mapping(self, topo_virt, vs_id, vs_port, dp_id, dp_port):
-        topo_virt_map_vs_vm_port = topo_virt.get_map_vs_vm_port()
-        if (vs_id,vs_port) in topo_virt_map_vs_vm_port.keys():
-            vm_id,vm_port = topo_virt_map_vs_vm_port[(vs_id,vs_port)]
-            topo_virt.reg_map_dp_vm_port(dp_id, dp_port, vm_id, vm_port)
+    def mod_vir_mapping(self, topo_vir, vs_id, vs_port, dp_id, dp_port):
+        map_vs_vm_port = topo_vir.get_map_vs_vm_port()
+        if (vs_id,vs_port) in map_vs_vm_port.keys():
+            vm_id,vm_port = map_vs_vm_port[(vs_id,vs_port)]
+            topo_vir.reg_map_dp_vm_port(dp_id, dp_port, vm_id, vm_port)
 
     def chk_vir_phy_map(self, vir_topo, phy_topo):
         map_vs_vm_port = vir_topo.get_map_vs_vm_port()
@@ -843,12 +843,12 @@ class Topologies():
 
     #Checks if virtual and physical are ready for mapping
     #I.e., if all topoVirtual routes will be adequated to the topoPhysical accordingly to the mapping between them
-    def chk_topos(self, topo_virt, topo_phy):
-        map_dp_vm_port = topo_virt.get_map_dp_vm_port()
+    def chk_topos(self, topo_vir, topo_phy):
+        map_dp_vm_port = topo_vir.get_map_dp_vm_port()
         map_vm_dp_port = topo_phy.get_map_vm_dp_port()
         vms_queue = []
         vms_visited = []
-        vms = topo_virt.get_vms()
+        vms = topo_vir.get_vms()
         vms_queue.extend(vms.keys())
 
         while vms_queue:
@@ -857,10 +857,9 @@ class Topologies():
             dpids_connected = []
             vmid_conn = False
 
-            vmid_src_routes_by_addrs = topo_virt.get_vm_routes_by_addr(vmid_src)
-            for vms_routes_by_addr in vmid_src_routes_by_addrs:
-                vmid_src_routes.extend( vms_routes_by_addr )
-            vmid_src_intfs = topo_virt.get_vm_intf(vmid_src, intf_num=None)
+            vmid_src_routes += topo_vir.get_vm_routes_by_addr(vimd_src)
+
+            vmid_src_intfs = topo_vir.get_vm_intf(vmid_src, intf_num=None)
 
             for intf_num in vmid_src_intfs.keys():
                 if (vmid_src, int(intf_num)) in map_vm_dp_port.keys():
@@ -894,19 +893,19 @@ class Topologies():
         topo_phy.build_topo_phy()
         return True
 
-    def chk_vir_topo_conn(self, topo_virt):
-        links_topovirt = topo_virt.get_links()
-        topo_virt_map_vs_vm_port = topo_virt.get_map_vs_vm_port()
+    def chk_vir_topo_conn(self, topo_vir):
+        links_vir = topo_vir.get_links()
+        map_vs_vm_port = topo_vir.get_map_vs_vm_port()
         conn = False
 
-        for link_virt in links_topovirt.keys():
-            (src_vmid, src_intf) = link_virt.src.id, link_virt.src.port
-            (dst_vmid, dst_intf) = link_virt.dst.id, link_virt.dst.port
+        for link_vir in links_vir.keys():
+            (src_vmid, src_intf) = link_vir.src.id, link_vir.src.port
+            (dst_vmid, dst_intf) = link_vir.dst.id, link_vir.dst.port
 
-            if (src_vmid, src_intf) in topo_virt_map_vs_vm_port.values() \
-                    and (dst_vmid, dst_intf) in topo_virt_map_vs_vm_port.values():
-                vsid_src,vsid_src_port = topo_virt_map_vs_vm_port.keys()[topo_virt_map_virtual_plane.values().index( (src_vmid, src_intf) )]
-                vsid_dst,vsid_dst_port = topo_virt_map_vs_vm_port.keys()[topo_virt_map_virtual_plane.values().index( (dst_vmid, dst_intf) )]
+            if (src_vmid, src_intf) in map_vs_vm_port.values() \
+                    and (dst_vmid, dst_intf) in map_vs_vm_port.values():
+                vsid_src,vsid_src_port = map_vs_vm_port.keys()[map_vs_vm_port.values().index( (src_vmid, src_intf) )]
+                vsid_dst,vsid_dst_port = map_vs_vm_port.keys()[map_vs_vm_port.values().index( (dst_vmid, dst_intf) )]
 
                 if (vsid_src,vsid_src_port) and (vsid_dst,vsid_dst_port):
                     conn = True
