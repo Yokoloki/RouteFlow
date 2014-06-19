@@ -1,4 +1,7 @@
 from rflib.components.resources import *
+import logging
+
+log = logging.getLogger('rfserver')
 
 class Algorithms(object):
     def __init__(self):
@@ -14,12 +17,12 @@ class Algorithms(object):
             for link in links_phy.keys():
                 src = link.src
                 dst = link.dst
-                if (src.id, src.port) in map_dp_vm_port.keys()
-                    and (dst.id, dst.port) in map_dp_vm_port.keys():
+                if (src.id, src.port) in map_dp_vm_port.keys() \
+                        and (dst.id, dst.port) in map_dp_vm_port.keys():
                     (src_vmid, src_intf) = map_dp_vm_port[(src.id, src.port)]
                     (dst_vmid, dst_intf) = map_dp_vm_port[(dst.id, dst.port)]
-                    if (src_vmid, src_intf) in map_vs_vm_port.values()
-                        and (dst_vmid, dst_intf) in map_vs_vm_port.values():
+                    if (src_vmid, src_intf) in map_vs_vm_port.values() \
+                            and (dst_vmid, dst_intf) in map_vs_vm_port.values():
                         vsid_src,vsid_src_port = map_vs_vm_port.keys()[map_vs_vm_port.values().index( (src_vmid, src_intf) )]
                         vsid_dst,vsid_dst_port = map_vs_vm_port.keys()[map_vs_vm_port.values().index( (dst_vmid, dst_intf) )]
                         if (vsid_src,vsid_src_port) and (vsid_dst,vsid_dst_port):

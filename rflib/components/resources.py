@@ -4,6 +4,9 @@ import threading
 
 from rflib.defs import *
 from rflib.components.modifiers import *
+from rflib.components.configuration import *
+
+log = logging.getLogger('rfserver')
 
 def net_addr(ip, mask):
     net_addr_bin = []
@@ -29,7 +32,7 @@ class Port(object):
         return hash((self.id, self.port))
 
     def __str__(self):
-        return 'DPPort<%s, %s>' % (self.id, self.port)
+        return 'Port<%s, %s>' % (self.id, self.port)
 
 class Link(object):
     def __init__(self, src, dst):
@@ -47,10 +50,12 @@ class Link(object):
         return eq
 
     def __eq__(self, other):
-        return self.src == other.src and self.dst == other.dst
+        #return self.src == other.src and self.dst == other.dst
+        return (self.src == other.src and self.dst == other.dst) or (self.src == other.dst and self.dst == other.src)
 
     def __hash__(self):
-        return hash((self.src, self.dst))
+        #return hash((self.src, self.dst))
+        return hash((self.src, self.dst)) + hash((self.dst, self.src))
 
     def __str__(self):
         return 'LINK<%s, %s>' % (self.src, self.dst)
@@ -58,7 +63,7 @@ class Link(object):
 
 class Topology(object):
     def __init__(self, topo_id, topo_type):
-        self.topo = nx.MultiGraph(topology=topo_type)
+        self.topo = nx.Graph(topo=topo_type)
         self.topo_type = topo_type
         self.topo_id = topo_id
 
@@ -81,24 +86,25 @@ class Topology(object):
                 self.topo.add_node(dpid)
         for dpid in self.topo.nodes():
             if dpid not in dps.keys():
-                self.topo.rm_node(dpid)
+                self.topo.remove_node(dpid)
         for link in links.keys():
-            src = link.src
-            dst = link.dst
-            data_ = {'src_port':src.port,'dst_port':dst.port}
-            data_.update(links[link])
-            if (src.id, dst.id) not in self.topo.edges():
-                self.topo.add_edges_from( [(src.id, dst.id)], data_ )
+            data_ = {'src':link.src.id,'dst':link.dst.id,'src_port':link.src.port,'dst_port':link.dst.port}
+            if (link.src.id, link.dst.id) not in self.topo.edges():
+                self.topo.add_edge(link.src.id, link.dst.id, data_ )
             else:
-                self.topo.rm_edge(src.id, dst.id)
-                self.topo.add_edges_from( [(src.id, dst.id)], data_ )
+                self.topo.remove_edge(link.src.id, link.dst.id)
+                self.topo.add_edge(link.src.id, link.dst.id, data_ )
+
         #TODO topology update and check links removal
         for (src, dst, data_) in self.topo.edges(data=True):
+            srcid = data_['src']
+            dstid = data_['dst']
             srcport = data_['src_port']
             dstport = data_['dst_port']
-            link = Link(Port(src,srcport),Port(dst,dstport))
+            link = Link(Port(srcid,srcport),Port(dstid,dstport))
             if link not in links.keys():
-                self.topo.rm_edge(src,dst)
+                self.topo.remove_edge(src,dst)
+
         return True
 
     def build_topo_vir(self):
@@ -108,18 +114,24 @@ class Topology(object):
         links = self.get_links()
         for vmid in vms.keys():
             if vmid not in self.topo.nodes():
-                self.topo.add_node(vmid, vms[vmid])
+                #self.topo.add_node(vmid, vms[vmid])
+                self.topo.add_node(vmid)
         for vmid in self.topo.nodes():
             if vmid not in vms.keys():
                 self.topo.rm_node(vmid)
-        for (src,dst) in links.keys():
-            if (src['vmid'],dst['vmid']) not in self.topo.edges():
-                self.topo.add_edge(src['vmid'],dst['vmid'], links[(src,dst)])
+        for link in links.keys():
+            if (link.src.id, link.dst.id) not in self.topo.edges():
+                data_ = {'src':link.src.id,'dst':link.dst.id,'src_port':link.src.port,'dst_port':link.dst.port}
+                self.topo.add_edge(link.src.id, link.dst.id, data_)
         for (src, dst, data_) in self.topo.edges(data=True):
+            srcid = data_['src']
+            dstid = data_['dst']
             srcport = data_['src_port']
             dstport = data_['dst_port']
-            if ( (src,srcport) , (dst,dstport) ) not in links.keys():
-                self.topo.rm_edge(src,dst)
+            link = Link(Port(srcid, srcport), Port(dstid, dstport))
+            if link not in links.keys():
+                self.topo.remove_edge(src,dst)
+
         return True
 
     def update_topo(self):
@@ -763,8 +775,15 @@ class TopoVirtual(Topology):
 class Topologies():
     def __init__(self):
         self.modifiers = Modifiers()
+        self.algorithms = Algorithms()
         self.phy_topos = {}
         self.vir_topos = {}
+        self.topo_mapping = {}
+
+    def build_graph(self, topo_phy, topo_vir):
+        topo_phy.build_topo_phy()
+        self.algorithms.map_topos(topo_phy, topo_vir)
+        topo_vir.build_topo_vir()
 
     def reg_topo(self, topo_id, topo_type, ct_id=None):
         if topo_type == 'phy':
@@ -776,6 +795,9 @@ class Topologies():
             if topo_id not in self.vir_topos.keys():
                 topo_vir = TopoVirtual(topo_id)
                 self.vir_topos[topo_id] = topo_vir
+
+    def map_topo(self, phy_topo, vir_topo):
+        self.topo_mapping[phy_topo] = vir_topo
 
     def get_topo(self, topo_id, topo_type):
         if topo_type == 'vir':
@@ -843,7 +865,7 @@ class Topologies():
 
     #Checks if virtual and physical are ready for mapping
     #I.e., if all topoVirtual routes will be adequated to the topoPhysical accordingly to the mapping between them
-    def chk_topos(self, topo_vir, topo_phy):
+    def chk_topos(self, topo_phy, topo_vir):
         map_dp_vm_port = topo_vir.get_map_dp_vm_port()
         map_vm_dp_port = topo_phy.get_map_vm_dp_port()
         vms_queue = []
@@ -857,7 +879,7 @@ class Topologies():
             dpids_connected = []
             vmid_conn = False
 
-            vmid_src_routes += topo_vir.get_vm_routes_by_addr(vimd_src)
+            vmid_src_routes += topo_vir.get_vm_routes_by_addr(vmid_src)
 
             vmid_src_intfs = topo_vir.get_vm_intf(vmid_src, intf_num=None)
 
@@ -890,7 +912,6 @@ class Topologies():
                             vmid_conn = True
             if not vmid_conn:
                 return False
-        topo_phy.build_topo_phy()
         return True
 
     def chk_vir_topo_conn(self, topo_vir):

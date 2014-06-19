@@ -56,6 +56,7 @@ class RFServer(RFProtocolFactory, IPC.IPCMessageProcessor):
         self.topologies = Topologies()
         self.topologies.reg_topo(DEFAULT_TOPO_PHY_ID, 'phy', ct_id=DEFAULT_CT_ID)
         self.topologies.reg_topo(DEFAULT_TOPO_VIRT_ID, 'vir')
+        self.topologies.map_topo(self.topologies.get_topo(DEFAULT_TOPO_PHY_ID, 'phy'), self.topologies.get_topo(DEFAULT_TOPO_VIRT_ID, 'vir'))
 
         self.ipc.listen(RFCLIENT_RFSERVER_CHANNEL, self, self, False)
         self.ipc.listen(RFSERVER_RFPROXY_CHANNEL, self, self, True)
@@ -69,6 +70,7 @@ class RFServer(RFProtocolFactory, IPC.IPCMessageProcessor):
             self.topologies.mod_vir_topo(self.topologies.get_topo(DEFAULT_TOPO_VIRT_ID, 'vir'), msg)
         elif type_ == ROUTE_MOD:
             self.topologies.mod_vir_topo(self.topologies.get_topo(DEFAULT_TOPO_VIRT_ID, 'vir'), msg)
+            self.topologies.build_graph(self.topologies.get_topo(DEFAULT_TOPO_PHY_ID, 'phy'), self.topologies.get_topo(DEFAULT_TOPO_VIRT_ID, 'vir'))
             self.register_route_mod(msg)
         elif type_ == DATAPATH_PORT_REGISTER:
             self.register_dp_port(msg.get_ct_id(),
@@ -80,11 +82,13 @@ class RFServer(RFProtocolFactory, IPC.IPCMessageProcessor):
             self.set_dp_down(msg.get_ct_id(), msg.get_dp_id())
             self.topologies.mod_phy_topo(self.topologies.get_topo(DEFAULT_TOPO_PHY_ID, 'phy'), msg)
         elif type_ == VIRTUAL_PLANE_MAP:
+            self.topologies.mod_vir_topo(self.topologies.get_topo(DEFAULT_TOPO_VIRT_ID, 'vir'), msg)
             self.map_port(msg.get_vm_id(), msg.get_vm_port(),
                           msg.get_vs_id(), msg.get_vs_port())
-            self.topologies.mod_vir_topo(self.topologies.get_topo(DEFAULT_TOPO_VIRT_ID, 'vir'), msg)
+            self.topologies.build_graph(self.topologies.get_topo(DEFAULT_TOPO_PHY_ID, 'phy'), self.topologies.get_topo(DEFAULT_TOPO_VIRT_ID, 'vir'))
         elif type_ == DATA_PLANE_LINK:
             self.topologies.mod_phy_topo(self.topologies.get_topo(DEFAULT_TOPO_PHY_ID, 'phy'), msg)
+            self.topologies.build_graph(self.topologies.get_topo(DEFAULT_TOPO_PHY_ID, 'phy'), self.topologies.get_topo(DEFAULT_TOPO_VIRT_ID, 'vir'))
         else:
             return False
         return True
