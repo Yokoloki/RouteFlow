@@ -313,6 +313,8 @@ void RFClient::load_interfaces() {
 	        interface.port = port_id;
 	        interface.name = ifaceName;
 	        interface.hwaddress = MACAddress(hwaddress);
+            interface.address = IPAddress(IPV4, ipaddr);
+            interface.netmask = IPAddress(IPV4, mask);
 	        interface.active = true;
 
 		    InterfaceRegister msg(interface.name, this->id, interface.port, interface.address, interface.netmask, interface.hwaddress);
