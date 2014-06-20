@@ -20,10 +20,10 @@ def net_addr(ip, mask):
 
 
 class Port(object):
-    def __init__(self, id, port_no):
+    def __init__(self, id, port):
         super(Port, self).__init__()
         self.id = id
-        self.port = port_no
+        self.port = port
 
     def __eq__(self, other):
         return self.id == other.id and self.port == other.port
@@ -35,19 +35,36 @@ class Port(object):
         return 'Port<%s, %s>' % (self.id, self.port)
 
 class Link(object):
+    #Link is undirected && src&dst is just for easier naming
     def __init__(self, src, dst):
         super(Link, self).__init__()
         self.src = src
         self.dst = dst
 
-    def has_node(self, other):
-        eq = False
+    def is_intersect(self, other_link):
+        #return false if two links are the same
+        if(self == other_link):
+            return false
+        return (self.src.id == other_link.src.id or self.src.id == other_link.dst.id or self.dst.id == other_link.src.id or self.dst.id == other_link.dst.id)
 
-        if other.src:
-            eq = (self.src == other.src)
-        if other.dst:
-            eq = (self.dst == other.dst)
-        return eq
+    def get_port(self, node_id):
+        if(self.src.id == node_id):
+            return self.src.port
+        if(self.dst.id == node_id):
+            return self.dst.port
+        return -1;
+
+    def to_dict(self):
+        result = {};
+        result['sid'] = self.src.id
+        result['sport'] = self.src.port
+        result['did'] = self.dst.id
+        result['dport'] = self.dst.port
+        return result;
+
+    @classmethod
+    def from_dict(cls, d):
+        return Link(Port(d['sid'], d['sport']), Port(d['did'], d['dport']))
 
     def __eq__(self, other):
         #return self.src == other.src and self.dst == other.dst
@@ -55,7 +72,7 @@ class Link(object):
 
     def __hash__(self):
         #return hash((self.src, self.dst))
-        return hash((self.src, self.dst)) + hash((self.dst, self.src))
+        return hash(self.src) + hash(self.dst)
 
     def __str__(self):
         return 'LINK<%s, %s>' % (self.src, self.dst)
@@ -88,20 +105,15 @@ class Topology(object):
             if dpid not in dps.keys():
                 self.topo.remove_node(dpid)
         for link in links.keys():
-            data_ = {'src':link.src.id,'dst':link.dst.id,'src_port':link.src.port,'dst_port':link.dst.port}
             if (link.src.id, link.dst.id) not in self.topo.edges():
-                self.topo.add_edge(link.src.id, link.dst.id, data_ )
+                self.topo.add_edge(link.src.id, link.dst.id, link.to_dict())
             else:
                 self.topo.remove_edge(link.src.id, link.dst.id)
-                self.topo.add_edge(link.src.id, link.dst.id, data_ )
+                self.topo.add_edge(link.src.id, link.dst.id, link.to_dict())
 
         #TODO topology update and check links removal
         for (src, dst, data_) in self.topo.edges(data=True):
-            srcid = data_['src']
-            dstid = data_['dst']
-            srcport = data_['src_port']
-            dstport = data_['dst_port']
-            link = Link(Port(srcid,srcport),Port(dstid,dstport))
+            link = Link.from_dict(data_)
             if link not in links.keys():
                 self.topo.remove_edge(src,dst)
 
@@ -121,14 +133,10 @@ class Topology(object):
                 self.topo.rm_node(vmid)
         for link in links.keys():
             if (link.src.id, link.dst.id) not in self.topo.edges():
-                data_ = {'src':link.src.id,'dst':link.dst.id,'src_port':link.src.port,'dst_port':link.dst.port}
-                self.topo.add_edge(link.src.id, link.dst.id, data_)
+                self.topo.add_edge(link.src.id, link.dst.id, link.to_dict())
+
         for (src, dst, data_) in self.topo.edges(data=True):
-            srcid = data_['src']
-            dstid = data_['dst']
-            srcport = data_['src_port']
-            dstport = data_['dst_port']
-            link = Link(Port(srcid, srcport), Port(dstid, dstport))
+            link = Link.from_dict(data_)
             if link not in links.keys():
                 self.topo.remove_edge(src,dst)
 
