@@ -52,3 +52,19 @@ def bin_to_ether(value):
     hexval = b2a_hex(value)
     ethers = '%2s:%2s:%2s:%2s:%2s:%2s' % (hexval[:2], hexval[2:4], hexval[4:6], hexval[6:8], hexval[8:10], hexval[10:])
     return ethers
+
+def ip_bin_to_ddn(bin_int):
+    ddn_str = "";
+    for i in xrange(3, -1, -1):
+        ddn_str += str(255 & (bin_int >> i*8))
+        ddn_str += '.'
+    return ddn_str[:-1]
+
+def ip_ddn_to_bin(ddn_str):
+    bin_int = 0
+    eles = ddn_str.split('.')
+    for i in xrange(4):
+        bin_int = (bin_int + int(eles[i]) << 8)
+    bin_int = bin_int >> 8
+    return bin_int
+

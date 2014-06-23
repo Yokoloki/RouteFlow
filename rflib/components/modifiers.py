@@ -7,6 +7,36 @@ from rflib.types.Option import *
 from rflib.ipc.RFProtocol import *
 
 
+class Route(object):
+    def __init__(self, port = 0, addr = 0, mask = 0):
+        self.data_ = {};
+        self.data_['actions'] = {}
+        self.data_['actions']['dst_port'] = port
+        self.data_['matches'] = {}
+        self.data_['matches']['address'] = addr
+        self.data_['matches']['netmask'] = mask
+
+    @classmethod
+    def from_dict(cls, info_dict):
+        route = cls();
+        route.data_.update(info_dict)
+        return route
+
+    def __getitem__(self, key):
+        if key in self.data_:
+            return self.data_[key]
+        return None
+
+    def __setitem__(self, key, value):
+        self.data_[key] = value
+
+    def __eq__(self, other):
+        return self.data_ == other.data_
+
+    def match(self, addr, mask):
+        return self.data_['matches']['address'] == addr and self.data_['matches']['netmask'] == mask
+
+
 class RouteMods():
     def __init__(self):
         self.id_ = 1
@@ -18,8 +48,8 @@ class RouteMods():
             match = Match.from_dict(m)
             if match._type == RFMT_IPV4:
                 value = bin_to_int(match._value)
-                addr = value >> 32
-                mask = value & ((1 << 32) - 1)
+                addr = ip_bin_to_ddn(value >> 32)
+                mask = ip_bin_to_ddn(value & ((1 << 32) - 1))
                 route_matches_types.append(RFMT_IPV4)
                 route_matches['ethtype'] = ETHERTYPE_IP
                 route_matches['address'] = addr
@@ -157,8 +187,8 @@ class RouteMods():
         for match_type in route_matches_types:
             if match_type == RFMT_IPV4:
                 ethtype = route_matches['ethtype']
-                addr = route_matches['address']
-                mask = route_matches['netmask']
+                addr = ip_ddn_to_bin(route_matches['address'])
+                mask = ip_ddn_to_bin(route_matches['netmask'])
                 routemod.add_match(Match.ETHERTYPE(ethtype))
                 routemod.add_match(Match.IPV4(addr, mask))
             elif match_type == RFMT_IPV6:
@@ -443,7 +473,7 @@ class Modifiers():
         self.groupmods = GroupMods()
 
     def convert_routemod_to_route(self, routemod):
-        route = {}
+        route = Route()
         self.routemods.unpack_matches(route, routemod.get_matches())
         self.routemods.unpack_actions(route, routemod.get_actions())
         self.routemods.unpack_instructions(route, routemod.get_instructions())

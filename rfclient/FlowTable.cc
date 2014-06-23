@@ -625,7 +625,6 @@ int FlowTable::sendToHw(RouteModType mod, const RouteEntry& re) {
             fprintf(stderr, "Cannot Resolve %s\n", gateway_str.c_str());
             return -1;
         }
-
         return sendToHw(mod, re.address, re.netmask, re.interface, remoteMac);
     }
 

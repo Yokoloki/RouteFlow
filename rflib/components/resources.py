@@ -6,6 +6,8 @@ from rflib.defs import *
 from rflib.components.modifiers import *
 from rflib.components.configuration import *
 
+from collections import defaultdict as ddict
+
 log = logging.getLogger('rfserver')
 
 def net_addr(ip, mask):
@@ -64,7 +66,7 @@ class Link(object):
 
     @classmethod
     def from_dict(cls, d):
-        return Link(Port(d['sid'], d['sport']), Port(d['did'], d['dport']))
+        return cls(Port(d['sid'], d['sport']), Port(d['did'], d['dport']))
 
     def __eq__(self, other):
         #return self.src == other.src and self.dst == other.dst
@@ -76,7 +78,6 @@ class Link(object):
 
     def __str__(self):
         return 'LINK<%s, %s>' % (self.src, self.dst)
-
 
 class Topology(object):
     def __init__(self, topo_id, topo_type):
@@ -578,34 +579,23 @@ class VM():
             self.addrs.remove(addr)
 
     def add_route(self, route):
-        dst_port = route['actions']['dst_port']
-        is_multipath = False
-        is_resilience = False
-        bandwidth = 0
-        if 'bandwidth' in route.keys():
-            bandwidth = route['bandwidth']
-        route_add = {'is_multipath':is_multipath,
-                'is_resilience':is_resilience,
-                'bandwidth':bandwidth}
-        route_add.update( route )
+        actions = route['actions']
+        dst_port = actions['dst_port']
+        #dst_port = route['actions']['dst_port']
         if dst_port not in self.routes.keys():
-            self.routes[dst_port] = [ route_add ]
+            self.routes[dst_port] = []
+        if route not in self.routes[dst_port]:
+            self.routes[dst_port].append(route)
             return True
-        else:
-            if route_add not in self.routes[dst_port]:
-                self.routes[dst_port].append( route_add )
-                return True
         return False
 
     def rm_route(self, route):
-        dst_port = route['actions']['dst_port']
-        addr = route['matches']['address']
-        netmask = route['matches']['netmask']
+        actions = route['actions']
+        dst_port = actions['dst_port']
+        #dst_port = route['actions']['dst_port']
         if dst_port in self.routes.keys():
-            routes_ = [ route_ for route_ in self.routes[dst_port]
-                    if (route_['matches']['address'] == addr and route_['matches']['netmask'] == netmask) ]
-            if routes_:
-                self.routes[dst_port].remove( routes_[0] )
+            if route in self.routes[dst_port]:
+                self.routes[dst_port].remove(route)
             return True
         return False
 
@@ -615,21 +605,13 @@ class VM():
     def get_routes_by_port(self, port):
         return self.routes.get(port,None)
 
-    def get_routes_by_addr(self, addr=None):
-        routes_by_addr = []
-        addrs = []
-        if addr:
-            for dst_port in self.routes.keys():
-                for route in self.routes[dst_port]:
-                    if route['matches']['address'] == addr:
-                        routes_by_addr.append(route)
-        else:
-            for dst_port in self.routes.keys():
-                for route in self.routes[dst_port]:
-                    if route['matches']['address'] not in addrs:
-                        addrs.append(route['matches']['address'])
-                        routes_by_addr.append(self.get_routes_by_addr(addr=route['matches']['address']))
-        return routes_by_addr
+    def get_routes_by_addr(self, addr, mask):
+        routes = []
+        for dst_port in self.routes.keys():
+            for route in self.routes[dst_port]:
+                if route.match(addr, mask):
+                    routes.append(route)
+        return routes
 
     def get_intfs(self):
         return self.intfs
@@ -639,6 +621,12 @@ class VM():
             return self.intfs[intfsnum]
         else:
             return None
+
+    def get_subnets(self):
+        subnets = []
+        for pid in self.intfs.keys():
+            subnets.append((self.intfs[pid]['netaddr'], self.intfs[pid]['netmask']))
+        return subnets
 
 
 class TopoVirtual(Topology):
@@ -722,11 +710,13 @@ class TopoVirtual(Topology):
                 if intfs:
                     self.vms[vmid].rm_intfs(intfs)
                 if routes:
+                    #self.vms[vmid].rm_route(Route.from_dict(routes))
                     self.vms[vmid].rm_route(routes)
             else:
                 if intfs:
                     self.vms[vmid].add_intfs(intfs)
                 if routes:
+                    #self.vms[vmid].add_route(Route.from_dict(routes))
                     self.vms[vmid].add_route(routes)
 
     def get_vm_routes(self, vmid, port=None):
@@ -779,6 +769,49 @@ class TopoVirtual(Topology):
         vm_intf = self.vms[vmid].get_intf_by_addr(addr)
         return vm_intf
 
+    def cal_routes(self):
+        #Recalucation routes for the network
+        paths = nx.shortest_path(self.topo)
+        new_routes = {}
+        for src in paths:
+            new_routes[src] = ddict(list)
+            for dst in paths[src]:
+                if src == dst: continue
+                for subnet in self.vms[dst].get_subnets():
+                    next_hop = paths[src][dst][1]
+                    link = Link.from_dict(self.topo.get_edge_data(src, next_hop))
+                    new_routes[src][link.get_port(src)].append(subnet)
+
+        #Compare new routes with existing routes
+        for vmid in self.vms.keys():
+            exist_routes = self.vms[vmid].get_routes()
+            #Delete routes no longer exist
+            routes_to_rm = []
+            for port in exist_routes.keys():
+                if port not in new_routes.keys():
+                    for route in exist_routes[port]:
+                        routes_to_rm.append(route)
+                    continue
+                for route in exist_routes[vmid][port]:
+                    exist_subnet = (route['matches']['address'], route['matches']['netmask'])
+                    if exist_subnet not in new_routes[vmid][port]:
+                        routes_to_rm.append(route)
+            #Add routes just calculated
+            routes_to_add = []
+            for port in new_routes[vmid].keys():
+                if port not in exist_routes.keys():
+                    for subnet in new_routes[vmid][port]:
+                        route = Route(port, subnet[0], subnet[1])
+                        routes_to_add.append(route)
+                    continue
+                for subnet in new_routes[vmid][port]:
+                    exist = False
+                    for route in exist_routes[port]:
+                        if route.match(subnet[0], subnet[1]):
+                            exist = True
+                            break
+                    if not exist:
+                        routes_to_add.append(Route(port, subnet[0], subnet[1]))
 
 class Topologies():
     def __init__(self):
@@ -792,6 +825,7 @@ class Topologies():
         topo_phy.build_topo_phy()
         self.algorithms.map_topos(topo_phy, topo_vir)
         topo_vir.build_topo_vir()
+        topo_vir.cal_routes()
 
     def reg_topo(self, topo_id, topo_type, ct_id=None):
         if topo_type == 'phy':
