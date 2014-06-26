@@ -5,16 +5,22 @@ from rflib.types.Meter import *
 from rflib.types.Group import *
 from rflib.types.Option import *
 from rflib.ipc.RFProtocol import *
+import logging
+
+log = logging.getLogger("rfserver")
 
 
 class Route(object):
     def __init__(self, port = 0, addr = 0, mask = 0):
         self.data_ = {};
+        self.data_['actions_types'] = [RFAT_OUTPUT]
         self.data_['actions'] = {}
         self.data_['actions']['dst_port'] = port
+        self.data_['matches_types'] = [RFMT_IPV4]
         self.data_['matches'] = {}
         self.data_['matches']['address'] = addr
         self.data_['matches']['netmask'] = mask
+        self.data_['matches']['ethtype'] = ETHERTYPE_IP
 
     @classmethod
     def from_dict(cls, info_dict):
@@ -101,11 +107,11 @@ class RouteMods():
                 route_actions['dst_port'] = port
                 route_action_types.append(RFAT_OUTPUT)
             elif action._type == RFAT_SET_ETH_SRC:
-                srcMac = action._value
+                srcMac = bin_to_ether(action._value)
                 route_actions['src_hwaddress'] = srcMac
                 route_action_types.append(RFAT_SET_ETH_SRC)
             elif action._type == RFAT_SET_ETH_DST:
-                dstMac = action._value
+                dstMac = bin_to_ether(action._value)
                 route_actions['dst_hwaddress'] = dstMac
                 route_action_types.append(RFAT_SET_ETH_DST)
             elif action._type == RFAT_GROUP:
@@ -187,8 +193,8 @@ class RouteMods():
         for match_type in route_matches_types:
             if match_type == RFMT_IPV4:
                 ethtype = route_matches['ethtype']
-                addr = ip_ddn_to_bin(route_matches['address'])
-                mask = ip_ddn_to_bin(route_matches['netmask'])
+                addr = route_matches['address']
+                mask = route_matches['netmask']
                 routemod.add_match(Match.ETHERTYPE(ethtype))
                 routemod.add_match(Match.IPV4(addr, mask))
             elif match_type == RFMT_IPV6:
@@ -246,6 +252,7 @@ class RouteMods():
     def pack_instructions(self, routemod, route):
         route_instructions = route['instructions']
         route_instructions_types = route['instructions_types']
+        if not route_instructions_types: return
         for instruction_type in route_instructions_types:
             if instruction_type == RFIT_METER:
                 meter_id = route_instructions['meter_id']
@@ -267,6 +274,7 @@ class RouteMods():
     def pack_options(self, routemod, route):
         route_options = route['options']
         route_options_types = route['options_types']
+        if not route_options_types: return
         for option_type in route_options_types:
             if option_type == RFOT_PRIORITY:
                 priority = route_options["priority"]

@@ -769,22 +769,38 @@ class TopoVirtual(Topology):
         vm_intf = self.vms[vmid].get_intf_by_addr(addr)
         return vm_intf
 
-    def cal_routes(self):
+class Topologies():
+    def __init__(self):
+        self.modifiers = Modifiers()
+        self.algorithms = Algorithms()
+        self.phy_topos = {}
+        self.vir_topos = {}
+        self.topo_mapping = {}
+
+    def build_graph(self, topo_phy, topo_vir):
+        topo_phy.build_topo_phy()
+        self.algorithms.map_topos(topo_phy, topo_vir)
+        topo_vir.build_topo_vir()
+        self.cal_routes_vir(topo_vir)
+
+    def cal_routes_vir(self, topo_vir):
+        topo = topo_vir.get_topo()
+        vms = topo_vir.get_vms()
         #Recalucation routes for the network
-        paths = nx.shortest_path(self.topo)
+        paths = nx.shortest_path(topo)
         new_routes = {}
         for src in paths:
             new_routes[src] = ddict(list)
             for dst in paths[src]:
                 if src == dst: continue
-                for subnet in self.vms[dst].get_subnets():
+                for subnet in vms[dst].get_subnets():
                     next_hop = paths[src][dst][1]
-                    link = Link.from_dict(self.topo.get_edge_data(src, next_hop))
+                    link = Link.from_dict(topo.get_edge_data(src, next_hop))
                     new_routes[src][link.get_port(src)].append(subnet)
 
         #Compare new routes with existing routes
-        for vmid in self.vms.keys():
-            exist_routes = self.vms[vmid].get_routes()
+        for vmid in vms.keys():
+            exist_routes = vms[vmid].get_routes()
             #Delete routes no longer exist
             routes_to_rm = []
             for port in exist_routes.keys():
@@ -812,20 +828,14 @@ class TopoVirtual(Topology):
                             break
                     if not exist:
                         routes_to_add.append(Route(port, subnet[0], subnet[1]))
-
-class Topologies():
-    def __init__(self):
-        self.modifiers = Modifiers()
-        self.algorithms = Algorithms()
-        self.phy_topos = {}
-        self.vir_topos = {}
-        self.topo_mapping = {}
-
-    def build_graph(self, topo_phy, topo_vir):
-        topo_phy.build_topo_phy()
-        self.algorithms.map_topos(topo_phy, topo_vir)
-        topo_vir.build_topo_vir()
-        topo_vir.cal_routes()
+            #Transform routes into routemod messages
+            for route in routes_to_rm:
+                route['mod'] = RMT_DELETE
+                routemod = self.modifiers.convert_route_to_routemod(route)
+            log.info("## ROUTEMOD ADD")
+            for route in routes_to_add:
+                route['mod'] = RMT_ADD
+                routemod = self.modifiers.convert_route_to_routemod(route)
 
     def reg_topo(self, topo_id, topo_type, ct_id=None):
         if topo_type == 'phy':

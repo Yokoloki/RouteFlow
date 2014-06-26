@@ -59,12 +59,3 @@ def ip_bin_to_ddn(bin_int):
         ddn_str += str(255 & (bin_int >> i*8))
         ddn_str += '.'
     return ddn_str[:-1]
-
-def ip_ddn_to_bin(ddn_str):
-    bin_int = 0
-    eles = ddn_str.split('.')
-    for i in xrange(4):
-        bin_int = (bin_int + int(eles[i]) << 8)
-    bin_int = bin_int >> 8
-    return bin_int
-
