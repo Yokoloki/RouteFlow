@@ -59,12 +59,14 @@ int rta_to_ip(unsigned char family, const void *ip, IPAddress& result) {
 //       associated with a valid datapath
 
 
-static int FlowTable::HTUpdateCB(const struct sockaddr_nl *, struct nlmsghdr *n, void *table){
-    table->updateHostTable(n);
+int FlowTable::HTUpdateCB(const struct sockaddr_nl *, struct nlmsghdr *n, void *ptr){
+    FlowTable *table = (FlowTable*)ptr;
+    return table->updateHostTable(n);
 }
 
-static int FlowTable::RTUpdateCB(const struct sockaddr_nl *, struct nlmsghdr *n, void *table){
-    table->updateRouteTable(n);
+int FlowTable::RTUpdateCB(const struct sockaddr_nl *, struct nlmsghdr *n, void *ptr){
+    FlowTable *table = (FlowTable*)ptr;
+    return table->updateRouteTable(n);
 }
 
 FlowTable::FlowTable(uint64_t vm_id, map<string, Interface> interfaces, IPCMessageService *ipc, vector<uint32_t> *down_ports){
@@ -78,32 +80,33 @@ FlowTable::FlowTable(uint64_t vm_id, map<string, Interface> interfaces, IPCMessa
     llink = 0;
     laddr = 0;
     lroute = 0;
+#ifdef FPM_ENABLED
     fpmServer = NULL;
-
+#endif
     rtnl_open(&rth_host, RTMGRP_NEIGH);
     rtnl_open(&rth_route, RTMGRP_IPV4_MROUTE | RTMGRP_IPV4_ROUTE
                         | RTMGRP_IPV6_MROUTE | RTMGRP_IPV6_ROUTE);
 }
 
-FlowTable:~FlowTable(){
+FlowTable::~FlowTable(){
 #ifdef FPM_ENABLED
     if (fpmServer != NULL) delete fpmServer;
 #endif /* FPM_ENABLED */
 }
 
 void FlowTable::start(){
-    NTPolling = boost:thread(&HTPollingFunc, &rth_host, this);
+    HTPolling = boost::thread(&HTPollingFunc, &rth_host, this);
 
 #ifdef FPM_ENABLED
-    std::count << "FPM interface enabled\n";
+    std::cout << "FPM interface enabled\n";
     fpmServer = new fpmServer(this);
-    FPMClient = boost:thread(&FPMServerFunc, fpmServer);
+    FPMClient = boost::thread(&FPMServerFunc, fpmServer);
 #else
-    std::count << "Netlink interface enabled\n";
+    std::cout << "Netlink interface enabled\n";
     RTPolling = boost::thread(&RTPollingFunc, &rth_route, this);
 #endif /* FPM_ENABLED */
 
-    GWResolver = boost:thread(&GWResolverFunc, this);
+    GWResolver = boost::thread(&GWResolverFunc, this);
     GWResolver.join();
 }
 
@@ -339,14 +342,14 @@ int FlowTable::updateRouteTable(struct nlmsghdr *n) {
                     gw = rentry->gateway.toString();
                     std::cout << "netlink->RTM_NEWROUTE (RTA_MULTIPATH): net=" << net << ", mask="
                               << mask << ", gw=" << gw << std::endl;
-                    pendingRoutes.push(PendingRoute(RMT_ADD, *rentry));
+                    pendingRoutes.push(Route(RMT_ADD, *rentry));
                 }
             }
             else{
                 gw = rentry->gateway.toString();
                 std::cout << "netlink->RTM_NEWROUTE: net=" << net << ", mask="
                           << mask << ", gw=" << gw << std::endl;
-                pendingRoutes.push(PendingRoute(RMT_ADD, *rentry));
+                pendingRoutes.push(Route(RMT_ADD, *rentry));
             }
             break;
         case RTM_DELROUTE:
@@ -359,14 +362,14 @@ int FlowTable::updateRouteTable(struct nlmsghdr *n) {
                     gw = rentry->gateway.toString();
                     std::cout << "netlink->RTM_DELROUTE (RTA_MULTIPATH): net=" << net << ", mask="
                               << mask << ", gw=" << gw << std::endl;
-                    pendingRoutes.push(PendingRoute(RMT_DELETE, *rentry));
+                    pendingRoutes.push(Route(RMT_DELETE, *rentry));
                 }
             }
             else{
                 gw = rentry->gateway.toString();
                 std::cout << "netlink->RTM_DELROUTE: net=" << net << ", mask="
                           << mask << ", gw=" << gw << std::endl;
-                pendingRoutes.push(PendingRoute(RMT_DELETE, *rentry));
+                pendingRoutes.push(Route(RMT_DELETE, *rentry));
             }
             break;
     }
@@ -377,7 +380,7 @@ void FlowTable::resolveGateways() {
     while (true) {
         boost::this_thread::interruption_point();
 
-        PendingRoute pr;
+        Route pr;
         pendingRoutes.wait_and_pop(pr);
 
         bool existingEntry = false;
@@ -476,12 +479,12 @@ int FlowTable::getInterface(const char *ifName, const char *type, Interface &int
     map<string, Interface>::iterator it = interfaces.find(ifName);
     if (it == interfaces.end()) {
         fprintf(stderr, "Interface %s not found, dropping %s entry\n",
-                intf, type);
+                ifName, type);
         return -1;
     }
     if (!it->second.active) {
         fprintf(stderr, "Interface %s inactive, dropping %s entry\n",
-                intf, type);
+                ifName, type);
         return -1;
     }
     intf = it->second;

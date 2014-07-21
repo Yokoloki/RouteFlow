@@ -142,7 +142,7 @@ RFClient::RFClient(uint64_t id, const string &address) {
     }
 
     flowTable = new FlowTable(this->id, this->ifacesMap, this->ipc, &(this->down_ports));
-    boost:thread t(&startFlowTable, flowTable);
+    boost::thread t(&startFlowTable, flowTable);
     t.detach();
 
     ipc->listen(RFCLIENT_RFSERVER_CHANNEL, this, this, true);

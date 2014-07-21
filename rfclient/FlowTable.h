@@ -33,8 +33,8 @@ static const MACAddress MAC_ADDR_NONE("00:00:00:00:00:00");
 // It is a little bit challenging to devise a decent API due to netlink
 class FlowTable {
     public:
-        static int HTUpdateCB(const struct sockaddr_nl *, struct nlmsghdr *n, void *table);
-        static int RTUpdateCB(const struct sockaddr_nl *, struct nlmsghdr *n, void *table);
+        static int HTUpdateCB(const struct sockaddr_nl *, struct nlmsghdr *n, void *ptr);
+        static int RTUpdateCB(const struct sockaddr_nl *, struct nlmsghdr *n, void *ptr);
 
         FlowTable(uint64_t vm_id, map<string, Interface> interfaces, IPCMessageService *ipc, vector<uint32_t> *down_ports);
         ~FlowTable();
@@ -52,7 +52,6 @@ class FlowTable {
 #ifdef FPM_ENABLED
         void updateNHLFE(nhlfe_msg_t *nhlfe_msg);
 #else
-        void RTPollingCb();
         int updateRouteTable(const struct sockaddr_nl*,
                                     struct nlmsghdr*, void*);
 #endif /* FPM_ENABLED */
@@ -80,8 +79,8 @@ class FlowTable {
         boost::thread RTPolling;
         struct rtnl_handle rth_route;
 #endif /* FPM_ENABLED */
-
-        SyncQueue< std::pair<RouteModType,RouteEntry> > pendingRoutes;
+        typedef std::pair<RouteModType, RouteEntry> Route;
+        SyncQueue<Route> pendingRoutes;
         list<RouteEntry> routeTable;
 
         boost::mutex hostTableMutex;
