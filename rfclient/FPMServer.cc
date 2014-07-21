@@ -62,6 +62,27 @@ if (level <= log_level) {     \
 /*
  * create_listen_sock
  */
+
+FPMServer::FPMServer(FlowTable *table) {
+    this->flowTable = table;
+}
+
+void FPMServer::start() {
+    memset(glob, 0, sizeof(*glob));
+    if (!create_listen_sock(FPM_DEFAULT_PORT, &glob->server_sock)) {
+        exit(1);
+    }
+
+    /*
+     * Server forever.
+     */
+    while (1) {
+        glob->sock = accept_conn(glob->server_sock);
+        fpm_serve();
+        trace(1, "Done serving client");
+    }
+}
+
 int FPMServer::create_listen_sock(int port, int *sock_p) {
     int sock;
     struct sockaddr_in addr;
@@ -215,12 +236,12 @@ void FPMServer::process_fpm_msg(fpm_msg_hdr_t *hdr) {
         struct nlmsghdr *n = (nlmsghdr *) fpm_msg_data(hdr);
 
         if (n->nlmsg_type == RTM_NEWROUTE || n->nlmsg_type == RTM_DELROUTE) {
-            FlowTable::updateRouteTable(n);
+            flowTable->updateRouteTable(n);
         }
     } else if (hdr->msg_type == FPM_MSG_TYPE_NHLFE) {
         nhlfe_msg_t *lsp_msg = (nhlfe_msg_t *) fpm_msg_data(hdr);
         print_nhlfe(lsp_msg);
-        FlowTable::updateNHLFE(lsp_msg);
+        flowTable->updateNHLFE(lsp_msg);
     } else if (hdr->msg_type == FPM_MSG_TYPE_FTN) {
         warn_msg("FTN not yet implemented");
     } else {
@@ -235,27 +256,11 @@ void FPMServer::fpm_serve() {
     char buf[FPM_MAX_MSG_LEN];
     fpm_msg_hdr_t *hdr;
     while (1) {
-        hdr = FPMServer::read_fpm_msg(buf, sizeof(buf));
+        hdr = read_fpm_msg(buf, sizeof(buf));
         if (!hdr) {
             return;
         }
-        FPMServer::process_fpm_msg(hdr);
-    }
-}
-
-void FPMServer::start() {
-    memset(glob, 0, sizeof(*glob));
-    if (!FPMServer::create_listen_sock(FPM_DEFAULT_PORT, &glob->server_sock)) {
-        exit(1);
-    }
-
-    /*
-     * Server forever.
-     */
-    while (1) {
-        glob->sock = FPMServer::accept_conn(glob->server_sock);
-        FPMServer::fpm_serve();
-        trace(1, "Done serving client");
+        process_fpm_msg(hdr);
     }
 }
 

@@ -23,74 +23,88 @@
 
 using namespace std;
 
+#define FULL_IPV4_PREFIX 32
+#define FULL_IPV6_PREFIX 128
+#define MAX_RENTRIES_MULTIPATH 128
+static const MACAddress MAC_ADDR_NONE("00:00:00:00:00:00");
+
+
 // TODO: recreate this module from scratch without all the static stuff.
 // It is a little bit challenging to devise a decent API due to netlink
 class FlowTable {
     public:
-        static void HTPollingCb();
-        static void GWResolverCb();
+        static int HTUpdateCB(const struct sockaddr_nl *, struct nlmsghdr *n, void *table);
+        static int RTUpdateCB(const struct sockaddr_nl *, struct nlmsghdr *n, void *table);
 
-        static void clear();
-        static void interrupt();
-        static void start(uint64_t vm_id, map<string, Interface> interfaces, IPCMessageService* ipc, vector<uint32_t>* down_ports);
-        static void print_test();
+        FlowTable(uint64_t vm_id, map<string, Interface> interfaces, IPCMessageService *ipc, vector<uint32_t> *down_ports);
+        ~FlowTable();
 
-        static int updateHostTable(const struct sockaddr_nl*,
-                                   struct nlmsghdr*, void*);
-        static int updateRouteTable(struct nlmsghdr *n);
+        void start();
+        void interrupt();
+        void clear();
+
+        int updateHostTable(struct nlmsghdr *n);
+        int updateRouteTable(struct nlmsghdr *n);
+        void resolveGateways();
+
+
 
 #ifdef FPM_ENABLED
-        static void updateNHLFE(nhlfe_msg_t *nhlfe_msg);
+        void updateNHLFE(nhlfe_msg_t *nhlfe_msg);
 #else
-        static void RTPollingCb();
-        static int updateRouteTable(const struct sockaddr_nl*,
+        void RTPollingCb();
+        int updateRouteTable(const struct sockaddr_nl*,
                                     struct nlmsghdr*, void*);
 #endif /* FPM_ENABLED */
 
     private:
-        static int family;
-        static unsigned groups;
-        static int llink;
-        static int laddr;
-        static int lroute;
+        int family;
+        unsigned groups;
+        int llink;
+        int laddr;
+        int lroute;
 
-        static const MACAddress MAC_ADDR_NONE;
-        static map<string, Interface> interfaces;
-        static vector<uint32_t>* down_ports;
-        static IPCMessageService* ipc;
-        static uint64_t vm_id;
+        map<string, Interface> interfaces;
+        vector<uint32_t>* down_ports;
+        IPCMessageService* ipc;
+        uint64_t vm_id;
 
-        static boost::thread GWResolver;
-        static boost::thread HTPolling;
-        static struct rtnl_handle rthNeigh;
+        boost::thread GWResolver;
+        boost::thread HTPolling;
+        struct rtnl_handle rth_host;
 
 #ifdef FPM_ENABLED
-        static boost::thread FPMClient;
+        boost::thread FPMClient;
+        FPMServer *fpmServer;
 #else
-        static boost::thread RTPolling;
-        static struct rtnl_handle rth;
+        boost::thread RTPolling;
+        struct rtnl_handle rth_route;
 #endif /* FPM_ENABLED */
 
-        static SyncQueue< std::pair<RouteModType,RouteEntry> > pendingRoutes;
-        static list<RouteEntry> routeTable;
-        static map<string, HostEntry> hostTable;
-        static map<string, int> pendingNeighbours;
+        SyncQueue< std::pair<RouteModType,RouteEntry> > pendingRoutes;
+        list<RouteEntry> routeTable;
 
-        static bool is_port_down(uint32_t port);
-        static int getInterface(const char *intf, const char *type,
+        boost::mutex hostTableMutex;
+        map<string, HostEntry> hostTable;
+
+        boost::mutex ndMutex;
+        map<string, int> pendingNeighbours;
+
+        bool is_port_down(uint32_t port);
+        int getInterface(const char *intf, const char *type,
                                 Interface& iface);
 
-        static int initiateND(const char *hostAddr);
-        static int resolveGateway(const IPAddress&, const Interface&);
-        static const MACAddress& findHost(const IPAddress& host);
+        int initiateND(const char *hostAddr);
+        int resolveGateway(const IPAddress&, const Interface&);
+        const MACAddress& findHost(const IPAddress& host);
 
-        static int setEthernet(RouteMod& rm, const Interface& local_iface,
+        int setEthernet(RouteMod& rm, const Interface& local_iface,
                                const MACAddress& gateway);
-        static int setIP(RouteMod& rm, const IPAddress& addr,
+        int setIP(RouteMod& rm, const IPAddress& addr,
                          const IPAddress& mask);
-        static int sendToHw(RouteModType, const RouteEntry&);
-        static int sendToHw(RouteModType, const HostEntry&);
-        static int sendToHw(RouteModType, const IPAddress& addr,
+        int sendToHw(RouteModType, const RouteEntry&);
+        int sendToHw(RouteModType, const HostEntry&);
+        int sendToHw(RouteModType, const IPAddress& addr,
                             const IPAddress& mask, const Interface&,
                             const MACAddress& gateway);
 };

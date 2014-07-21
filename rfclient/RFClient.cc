@@ -120,6 +120,10 @@ uint64_t get_interface_id(const char *ifname) {
     return id;
 }
 
+void startFlowTable(FlowTable *table) {
+    table->start();
+}
+
 RFClient::RFClient(uint64_t id, const string &address) {
     this->id = id;
     syslog(LOG_INFO, "Starting RFClient (vm_id=%s)", to_string<uint64_t>(this->id).c_str());
@@ -137,14 +141,11 @@ RFClient::RFClient(uint64_t id, const string &address) {
         syslog(LOG_INFO, "Registering client port (vm_port=%d)", i.port);
     }
 
-    this->startFlowTable();
+    flowTable = new FlowTable(this->id, this->ifacesMap, this->ipc, &(this->down_ports));
+    boost:thread t(&startFlowTable, flowTable);
+    t.detach();
 
     ipc->listen(RFCLIENT_RFSERVER_CHANNEL, this, this, true);
-}
-
-void RFClient::startFlowTable() {
-    boost::thread t(&FlowTable::start, this->id, this->ifacesMap, this->ipc, &(this->down_ports));
-    t.detach();
 }
 
 bool RFClient::process(const string &, const string &, const string &, IPCMessage& msg) {

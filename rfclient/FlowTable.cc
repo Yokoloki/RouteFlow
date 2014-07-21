@@ -14,191 +14,29 @@
 #include "converter.h"
 #include "FlowTable.h"
 #ifdef FPM_ENABLED
-  #include "FPMServer.hh"
+#include "FPMServer.hh"
 #endif /* FPM_ENABLED */
 
 using namespace std;
 
-#define FULL_IPV4_PREFIX 32
-#define FULL_IPV6_PREFIX 128
-#define MAX_RENTRIES_MULTIPATH 128
+void HTPollingFunc(struct rtnl_handle *rth, FlowTable *table){
+    rtnl_listen(rth, FlowTable::HTUpdateCB, table);
+}
 
-#define EMPTY_MAC_ADDRESS "00:00:00:00:00:00"
-
-const MACAddress FlowTable::MAC_ADDR_NONE(EMPTY_MAC_ADDRESS);
-
-int FlowTable::family = AF_UNSPEC;
-unsigned FlowTable::groups = ~0U;
-int FlowTable::llink = 0;
-int FlowTable::laddr = 0;
-int FlowTable::lroute = 0;
-
-boost::thread FlowTable::GWResolver;
-boost::thread FlowTable::HTPolling;
-struct rtnl_handle FlowTable::rthNeigh;
-
-#ifdef FPM_ENABLED
-  boost::thread FlowTable::FPMClient;
-#else
-  boost::thread FlowTable::RTPolling;
-  struct rtnl_handle FlowTable::rth;
-#endif /* FPM_ENABLED */
-
-map<string, Interface> FlowTable::interfaces;
-vector<uint32_t>* FlowTable::down_ports;
-IPCMessageService* FlowTable::ipc;
-uint64_t FlowTable::vm_id;
-
-typedef std::pair<RouteModType,RouteEntry> PendingRoute;
-SyncQueue<PendingRoute> FlowTable::pendingRoutes;
-list<RouteEntry> FlowTable::routeTable;
-boost::mutex hostTableMutex;
-map<string, HostEntry> FlowTable::hostTable;
-
-boost::mutex ndMutex;
-map<string, int> FlowTable::pendingNeighbours;
-
-// TODO: implement a way to pause the flow table updates when the VM is not
-//       associated with a valid datapath
-
-void FlowTable::HTPollingCb() {
-    rtnl_listen(&rthNeigh, FlowTable::updateHostTable, NULL);
+void GWResolverFunc(FlowTable *table){
+    table->resolveGateways();
 }
 
 #ifndef FPM_ENABLED
-void FlowTable::RTPollingCb() {
-    rtnl_listen(&rth, FlowTable::updateRouteTable, NULL);
+void RTPollingFunc(struct rtnl_handle *rth, FlowTable *table){
+    rtnl_listen(rth, FlowTable::RTUpdateCB, table);
 }
-#endif /* FPM_ENABLED */
-
-void FlowTable::start(uint64_t vm_id, map<string, Interface> interfaces,
-                      IPCMessageService* ipc, vector<uint32_t>* down_ports) {
-    FlowTable::vm_id = vm_id;
-    FlowTable::interfaces = interfaces;
-    FlowTable::ipc = ipc;
-    FlowTable::down_ports = down_ports;
-
-    rtnl_open(&rthNeigh, RTMGRP_NEIGH);
-    HTPolling = boost::thread(&FlowTable::HTPollingCb);
-
-#ifdef FPM_ENABLED
-    std::cout << "FPM interface enabled\n";
-    FPMClient = boost::thread(&FPMServer::start);
 #else
-    std::cout << "Netlink interface enabled\n";
-    rtnl_open(&rth, RTMGRP_IPV4_MROUTE | RTMGRP_IPV4_ROUTE
-                  | RTMGRP_IPV6_MROUTE | RTMGRP_IPV6_ROUTE);
-    RTPolling = boost::thread(&FlowTable::RTPollingCb);
+void FPMServerFunc(FMPServer *server){
+    server->start();
+}
+
 #endif /* FPM_ENABLED */
-
-    GWResolver = boost::thread(&FlowTable::GWResolverCb);
-    GWResolver.join();
-}
-
-void FlowTable::clear() {
-    FlowTable::routeTable.clear();
-    boost::lock_guard<boost::mutex> lock(hostTableMutex);
-    FlowTable::hostTable.clear();
-}
-
-void FlowTable::interrupt() {
-    HTPolling.interrupt();
-    GWResolver.interrupt();
-#ifdef FPM_ENABLED
-    FPMClient.interrupt();
-#else
-    RTPolling.interrupt();
-#endif /* FPM_ENABLED */
-}
-
-void FlowTable::GWResolverCb() {
-    while (true) {
-        boost::this_thread::interruption_point();
-
-        PendingRoute pr;
-        FlowTable::pendingRoutes.wait_and_pop(pr);
-
-        bool existingEntry = false;
-        std::list<RouteEntry>::iterator iter = FlowTable::routeTable.begin();
-        for (; iter != FlowTable::routeTable.end(); iter++) {
-            if (pr.second == *iter) {
-                existingEntry = true;
-                break;
-            }
-        }
-
-        if (existingEntry && pr.first == RMT_ADD) {
-            fprintf(stdout, "Received duplicate route addition for route %s\n",
-                    pr.second.address.toString().c_str());
-            continue;
-        }
-
-        if (!existingEntry && pr.first == RMT_DELETE) {
-            fprintf(stdout, "Received route removal for %s but route %s.\n",
-                    pr.second.address.toString().c_str(), "cannot be found");
-            continue;
-        }
-
-        const RouteEntry& re = pr.second;
-        if (pr.first != RMT_DELETE &&
-                findHost(re.address) == FlowTable::MAC_ADDR_NONE) {
-            /* Host is unresolved. Attempt to resolve it. */
-            if (resolveGateway(re.gateway, re.interface) < 0) {
-                /* If we can't resolve the gateway, put it to the end of the
-                 * queue. Routes with unresolvable gateways will constantly
-                 * loop through this code, popping and re-pushing. */
-                fprintf(stderr, "An error occurred while %s %s/%s.\n",
-                        "attempting to resolve", re.address.toString().c_str(),
-                        re.netmask.toString().c_str());
-                FlowTable::pendingRoutes.push(pr);
-                continue;
-            }
-        }
-
-        if (FlowTable::sendToHw(pr.first, pr.second) < 0) {
-            fprintf(stderr, "An error occurred while pushing route %s/%s.\n",
-                    re.address.toString().c_str(),
-                    re.netmask.toString().c_str());
-            FlowTable::pendingRoutes.push(pr);
-            continue;
-        }
-
-        if (pr.first == RMT_ADD) {
-            FlowTable::routeTable.push_back(pr.second);
-        } else if (pr.first == RMT_DELETE) {
-            FlowTable::routeTable.remove(pr.second);
-        } else {
-            fprintf(stderr, "Received unexpected RouteModType (%d)\n", pr.first);
-        }
-    }
-}
-
-/**
- * Get the local interface corresponding to the given interface number.
- *
- * On success, overwrites given interface pointer with the active interface
- * and returns 0;
- * On error, prints to stderr with appropriate message and returns -1.
- */
-int FlowTable::getInterface(const char *intf, const char *type,
-                            Interface& iface) {
-    map<string, Interface>::iterator it = interfaces.find(intf);
-
-    if (it == interfaces.end()) {
-        fprintf(stderr, "Interface %s not found, dropping %s entry\n",
-                intf, type);
-        return -1;
-    }
-
-    if (not it->second.active) {
-        fprintf(stderr, "Interface %s inactive, dropping %s entry\n",
-                intf, type);
-        return -1;
-    }
-
-    iface = it->second;
-    return 0;
-}
 
 int rta_to_ip(unsigned char family, const void *ip, IPAddress& result) {
     if (family == AF_INET) {
@@ -214,11 +52,78 @@ int rta_to_ip(unsigned char family, const void *ip, IPAddress& result) {
         fprintf(stderr, "Blank IP address. Dropping Route\n");
         return -1;
     }
-
     return 0;
 }
 
-int FlowTable::updateHostTable(const struct sockaddr_nl *, struct nlmsghdr *n, void *) {
+// TODO: implement a way to pause the flow table updates when the VM is not
+//       associated with a valid datapath
+
+
+static int FlowTable::HTUpdateCB(const struct sockaddr_nl *, struct nlmsghdr *n, void *table){
+    table->updateHostTable(n);
+}
+
+static int FlowTable::RTUpdateCB(const struct sockaddr_nl *, struct nlmsghdr *n, void *table){
+    table->updateRouteTable(n);
+}
+
+FlowTable::FlowTable(uint64_t vm_id, map<string, Interface> interfaces, IPCMessageService *ipc, vector<uint32_t> *down_ports){
+    this->vm_id = vm_id;
+    this->interfaces = interfaces;
+    this->ipc = ipc;
+    this->down_ports = down_ports;
+
+    family = AF_UNSPEC;
+    groups = ~0U;
+    llink = 0;
+    laddr = 0;
+    lroute = 0;
+    fpmServer = NULL;
+
+    rtnl_open(&rth_host, RTMGRP_NEIGH);
+    rtnl_open(&rth_route, RTMGRP_IPV4_MROUTE | RTMGRP_IPV4_ROUTE
+                        | RTMGRP_IPV6_MROUTE | RTMGRP_IPV6_ROUTE);
+}
+
+FlowTable:~FlowTable(){
+#ifdef FPM_ENABLED
+    if (fpmServer != NULL) delete fpmServer;
+#endif /* FPM_ENABLED */
+}
+
+void FlowTable::start(){
+    NTPolling = boost:thread(&HTPollingFunc, &rth_host, this);
+
+#ifdef FPM_ENABLED
+    std::count << "FPM interface enabled\n";
+    fpmServer = new fpmServer(this);
+    FPMClient = boost:thread(&FPMServerFunc, fpmServer);
+#else
+    std::count << "Netlink interface enabled\n";
+    RTPolling = boost::thread(&RTPollingFunc, &rth_route, this);
+#endif /* FPM_ENABLED */
+
+    GWResolver = boost:thread(&GWResolverFunc, this);
+    GWResolver.join();
+}
+
+void FlowTable::clear(){
+    this->routeTable.clear();
+    boost::lock_guard<boost::mutex> lock(hostTableMutex);
+    this->hostTable.clear();
+}
+
+void FlowTable::interrupt(){
+    HTPolling.interrupt();
+    GWResolver.interrupt();
+#ifdef FPM_ENABLED
+    FPMClient.interrupt();
+#else
+    RTPolling.interrupt();
+#endif /* FPM_ENABLED */
+}
+
+int FlowTable::updateHostTable(struct nlmsghdr *n) {
     struct ndmsg *ndmsg_ptr = (struct ndmsg *) NLMSG_DATA(n);
     struct rtattr *rtattr_ptr;
 
@@ -231,14 +136,12 @@ int FlowTable::updateHostTable(const struct sockaddr_nl *, struct nlmsghdr *n, v
         perror("HostTable");
         return 0;
     }
-
     /*
     if (ndmsg_ptr->ndm_state != NUD_REACHABLE) {
         cout << "ndm_state: " << (uint16_t) ndmsg_ptr->ndm_state << endl;
         return 0;
     }
     */
-
     boost::scoped_ptr<HostEntry> hentry(new HostEntry());
 
     char mac[2 * IFHWADDRLEN + 5 + 1];
@@ -279,13 +182,13 @@ int FlowTable::updateHostTable(const struct sockaddr_nl *, struct nlmsghdr *n, v
 
     switch (n->nlmsg_type) {
         case RTM_NEWNEIGH: {
-            FlowTable::sendToHw(RMT_ADD, *hentry);
+            sendToHw(RMT_ADD, *hentry);
 
             string host = hentry->address.toString();
             {
                 // Add to host table
                 boost::lock_guard<boost::mutex> lock(hostTableMutex);
-                FlowTable::hostTable[host] = *hentry;
+                hostTable[host] = *hentry;
             }
             {
                 // If we have been attempting neighbour discovery for this
@@ -307,7 +210,7 @@ int FlowTable::updateHostTable(const struct sockaddr_nl *, struct nlmsghdr *n, v
         /* TODO: enable this? It is causing serious problems. Why?
         case RTM_DELNEIGH: {
             std::cout << "netlink->RTM_DELNEIGH: ip=" << ip << ", mac=" << mac << std::endl;
-            FlowTable::sendToHw(RMT_DELETE, *hentry);
+            sendToHw(RMT_DELETE, *hentry);
             // TODO: delete from hostTable
             boost::lock_guard<boost::mutex> lock(hostTableMutex);
             break;
@@ -317,13 +220,6 @@ int FlowTable::updateHostTable(const struct sockaddr_nl *, struct nlmsghdr *n, v
 
     return 0;
 }
-
-#ifndef FPM_ENABLED
-int FlowTable::updateRouteTable(const struct sockaddr_nl *, struct nlmsghdr *n,
-                                void *) {
-    return FlowTable::updateRouteTable(n);
-}
-#endif /* FPM_ENABLED */
 
 int FlowTable::updateRouteTable(struct nlmsghdr *n) {
     struct rtmsg *rtmsg_ptr = (struct rtmsg *) NLMSG_DATA(n);
@@ -340,16 +236,16 @@ int FlowTable::updateRouteTable(struct nlmsghdr *n) {
     char intf[IF_NAMESIZE + 1];
     memset(intf, 0, IF_NAMESIZE + 1);
 
-	/* MULTIPATH ROUTE ENTRIES */
-	int num_rentries_multipath = MAX_RENTRIES_MULTIPATH;
-	int rt_multipath = 0;
-	bool is_multipath = false;
-	char gwmp[num_rentries_multipath][INET_ADDRSTRLEN];
-	char intfmp[num_rentries_multipath][IF_NAMESIZE + 1];
-	for (int i = 0; i<num_rentries_multipath; i++){
-		memset(gwmp[i], 0, INET_ADDRSTRLEN);
-		memset(intfmp[i], 0, IF_NAMESIZE + 1);
-	}
+    /* MULTIPATH ROUTE ENTRIES */
+    int num_rentries_multipath = MAX_RENTRIES_MULTIPATH;
+    int rt_multipath = 0;
+    bool is_multipath = false;
+    char gwmp[num_rentries_multipath][INET_ADDRSTRLEN];
+    char intfmp[num_rentries_multipath][IF_NAMESIZE + 1];
+    for (int i = 0; i<num_rentries_multipath; i++){
+        memset(gwmp[i], 0, INET_ADDRSTRLEN);
+        memset(intfmp[i], 0, IF_NAMESIZE + 1);
+    }
 
     struct rtattr *rtattr_ptr;
     rtattr_ptr = (struct rtattr *) RTM_RTA(rtmsg_ptr);
@@ -374,24 +270,23 @@ int FlowTable::updateRouteTable(struct nlmsghdr *n) {
             break;
         case RTA_MULTIPATH: {
             struct rtnexthop *rtnhp_ptr = (struct rtnexthop *) RTA_DATA(rtattr_ptr);
-			int rtnhp_len = RTA_PAYLOAD(rtattr_ptr);
+            int rtnhp_len = RTA_PAYLOAD(rtattr_ptr);
             is_multipath = true;
-			for (;;)
-			{
-				if (rtnhp_len < (int) sizeof(*rtnhp_ptr)) {
-					break;
-				}
+            for (;;) {
+                if (rtnhp_len < (int) sizeof(*rtnhp_ptr)) {
+                    break;
+                }
 
-				if (rtnhp_ptr->rtnh_len > rtnhp_len) {
-					break;
-				}
+                if (rtnhp_ptr->rtnh_len > rtnhp_len) {
+                    break;
+                }
 
-				if (rtnhp_ptr->rtnh_len > sizeof(*rtnhp_ptr) ){
-					if_indextoname(rtnhp_ptr->rtnh_ifindex, (char *) intfmp[rt_multipath]);				
-					int attrlen = rtnhp_ptr->rtnh_len - sizeof(*rtnhp_ptr);
-					struct rtattr *attr = RTNH_DATA(rtnhp_ptr);
-					while (RTA_OK(attr,attrlen)){
-						if ((attr->rta_type <= RTA_MAX) && (attr->rta_type == RTA_GATEWAY)) {
+                if (rtnhp_ptr->rtnh_len > sizeof(*rtnhp_ptr) ){
+                    if_indextoname(rtnhp_ptr->rtnh_ifindex, (char *) intfmp[rt_multipath]);             
+                    int attrlen = rtnhp_ptr->rtnh_len - sizeof(*rtnhp_ptr);
+                    struct rtattr *attr = RTNH_DATA(rtnhp_ptr);
+                    while (RTA_OK(attr,attrlen)){
+                        if ((attr->rta_type <= RTA_MAX) && (attr->rta_type == RTA_GATEWAY)) {
                             inet_ntop(AF_INET, RTA_DATA(attr), gwmp[rt_multipath], 128);
                         /*
                         if (rta_to_ip(rtmsg_ptr->rtm_family, RTA_DATA(rtattr_ptr), rentry->gateway) < 0) {
@@ -399,15 +294,15 @@ int FlowTable::updateRouteTable(struct nlmsghdr *n) {
                         }
                         */
                             //std::cout << "New multipath gw: " << gwmp[rt_multipath] << ", numero: " << rt_multipath << ", tipo: " << n->nlmsg_type << ", int: " << intfmp[rt_multipath] << std::endl;
-						}
-						attr = RTA_NEXT(attr, attrlen);
-					}
-				}
+                        }
+                        attr = RTA_NEXT(attr, attrlen);
+                    }
+                }
 
-				rtnhp_len -= NLMSG_ALIGN(rtnhp_ptr->rtnh_len);
-				rtnhp_ptr = RTNH_NEXT(rtnhp_ptr);
-				rt_multipath++;
-			}//End for(;;)
+                rtnhp_len -= NLMSG_ALIGN(rtnhp_ptr->rtnh_len);
+                rtnhp_ptr = RTNH_NEXT(rtnhp_ptr);
+                rt_multipath++;
+            }//End for(;;)
         }
             break;
         default:
@@ -415,16 +310,14 @@ int FlowTable::updateRouteTable(struct nlmsghdr *n) {
         }
     }
 
-    if (is_multipath == true) 
-    {
+    if (is_multipath == true) {
         for (int intfnum = 0; intfnum<rt_multipath; intfnum++) {
             if (getInterface(intfmp[intfnum], "route", rentry->interface) != 0) {
                 return 0;
             }
         }
     }
-    else
-    {    
+    else{    
         if (getInterface(intf, "route", rentry->interface) != 0) {
             return 0;
         }
@@ -437,53 +330,164 @@ int FlowTable::updateRouteTable(struct nlmsghdr *n) {
 
     switch (n->nlmsg_type) {
         case RTM_NEWROUTE:
-            if (is_multipath == true) 
-            {
-            	for (int i = 0; i<rt_multipath; i++){
+            if (is_multipath == true){
+                for (int i = 0; i<rt_multipath; i++){
                     if (inet_addr(gwmp[i]) == INADDR_NONE) {
                         return 0;
-				    }
-			        rentry->gateway = IPAddress(IPV4, gwmp[i]);
+                    }
+                    rentry->gateway = IPAddress(IPV4, gwmp[i]);
                     gw = rentry->gateway.toString();
                     std::cout << "netlink->RTM_NEWROUTE (RTA_MULTIPATH): net=" << net << ", mask="
                               << mask << ", gw=" << gw << std::endl;
-                    FlowTable::pendingRoutes.push(PendingRoute(RMT_ADD, *rentry));
+                    pendingRoutes.push(PendingRoute(RMT_ADD, *rentry));
                 }
             }
-            else
-            {
+            else{
                 gw = rentry->gateway.toString();
                 std::cout << "netlink->RTM_NEWROUTE: net=" << net << ", mask="
                           << mask << ", gw=" << gw << std::endl;
-                FlowTable::pendingRoutes.push(PendingRoute(RMT_ADD, *rentry));
+                pendingRoutes.push(PendingRoute(RMT_ADD, *rentry));
             }
             break;
         case RTM_DELROUTE:
-            if (is_multipath == true)
-            {
-            	for (int i = 0; i<rt_multipath; i++){
+            if (is_multipath == true){
+                for (int i = 0; i<rt_multipath; i++){
                     if (inet_addr(gwmp[i]) == INADDR_NONE) {
                         return 0;
-				    }
-		            rentry->gateway = IPAddress(IPV4, gwmp[i]);
+                    }
+                    rentry->gateway = IPAddress(IPV4, gwmp[i]);
                     gw = rentry->gateway.toString();
                     std::cout << "netlink->RTM_DELROUTE (RTA_MULTIPATH): net=" << net << ", mask="
                               << mask << ", gw=" << gw << std::endl;
-                    FlowTable::pendingRoutes.push(PendingRoute(RMT_DELETE, *rentry));
-                    }
+                    pendingRoutes.push(PendingRoute(RMT_DELETE, *rentry));
+                }
             }
-            else
-            {
+            else{
                 gw = rentry->gateway.toString();
                 std::cout << "netlink->RTM_DELROUTE: net=" << net << ", mask="
                           << mask << ", gw=" << gw << std::endl;
-                FlowTable::pendingRoutes.push(PendingRoute(RMT_DELETE, *rentry));
+                pendingRoutes.push(PendingRoute(RMT_DELETE, *rentry));
             }
             break;
     }
-
     return 0;
 }
+
+void FlowTable::resolveGateways() {
+    while (true) {
+        boost::this_thread::interruption_point();
+
+        PendingRoute pr;
+        pendingRoutes.wait_and_pop(pr);
+
+        bool existingEntry = false;
+        std::list<RouteEntry>::iterator iter = routeTable.begin();
+        for (; iter != routeTable.end(); iter++) {
+            if (pr.second == *iter) {
+                existingEntry = true;
+                break;
+            }
+        }
+
+        if (existingEntry && pr.first == RMT_ADD) {
+            fprintf(stdout, "Received duplicate route addition for route %s\n",
+                    pr.second.address.toString().c_str());
+            continue;
+        }
+
+        if (!existingEntry && pr.first == RMT_DELETE) {
+            fprintf(stdout, "Received route removal for %s but route %s.\n",
+                    pr.second.address.toString().c_str(), "cannot be found");
+            continue;
+        }
+
+        const RouteEntry& re = pr.second;
+        if (pr.first != RMT_DELETE &&
+                findHost(re.address) == MAC_ADDR_NONE) {
+            /* Host is unresolved. Attempt to resolve it. */
+            if (resolveGateway(re.gateway, re.interface) < 0) {
+                /* If we can't resolve the gateway, put it to the end of the
+                 * queue. Routes with unresolvable gateways will constantly
+                 * loop through this code, popping and re-pushing. */
+                fprintf(stderr, "An error occurred while %s %s/%s.\n",
+                        "attempting to resolve", re.address.toString().c_str(),
+                        re.netmask.toString().c_str());
+                pendingRoutes.push(pr);
+                continue;
+            }
+        }
+
+        if (sendToHw(pr.first, pr.second) < 0) {
+            fprintf(stderr, "An error occurred while pushing route %s/%s.\n",
+                    re.address.toString().c_str(),
+                    re.netmask.toString().c_str());
+            pendingRoutes.push(pr);
+            continue;
+        }
+
+        if (pr.first == RMT_ADD) {
+            routeTable.push_back(pr.second);
+        } else if (pr.first == RMT_DELETE) {
+            routeTable.remove(pr.second);
+        } else {
+            fprintf(stderr, "Received unexpected RouteModType (%d)\n", pr.first);
+        }
+    }
+}
+
+/**
+ * Initiates the gateway resolution process for the given host.
+ *
+ * Returns:
+ *  0 if address resolution is currently being performed
+ * -1 on error (usually an issue with the socket)
+ */
+int FlowTable::resolveGateway(const IPAddress& gateway, const Interface& iface) {
+    if (is_port_down(iface.port)) {
+        return -1;
+    }
+
+    string gateway_str = gateway.toString();
+
+    // If we already initiated neighbour discovery for this gateway, return.
+    boost::lock_guard<boost::mutex> lock(ndMutex);
+    if (pendingNeighbours.find(gateway_str) != pendingNeighbours.end()) {
+        return 0;
+    }
+
+    // Otherwise, we should go ahead and begin the process.
+    int sock = initiateND(gateway_str.c_str());
+    if (sock == -1) {
+        return -1;
+    }
+    pendingNeighbours[gateway_str] = sock;
+    return 0;
+}
+
+
+/**
+ * Get the local interface corresponding to the given interface number.
+ *
+ * On success, overwrites given interface pointer with the active interface
+ * and returns 0;
+ * On error, prints to stderr with appropriate message and returns -1.
+ */
+int FlowTable::getInterface(const char *ifName, const char *type, Interface &intf) {
+    map<string, Interface>::iterator it = interfaces.find(ifName);
+    if (it == interfaces.end()) {
+        fprintf(stderr, "Interface %s not found, dropping %s entry\n",
+                intf, type);
+        return -1;
+    }
+    if (!it->second.active) {
+        fprintf(stderr, "Interface %s inactive, dropping %s entry\n",
+                intf, type);
+        return -1;
+    }
+    intf = it->second;
+    return 0;
+}
+
 
 /**
  * Begins the neighbour discovery process to the specified host.
@@ -525,36 +529,6 @@ int FlowTable::initiateND(const char *hostAddr) {
     return s;
 }
 
-/**
- * Initiates the gateway resolution process for the given host.
- *
- * Returns:
- *  0 if address resolution is currently being performed
- * -1 on error (usually an issue with the socket)
- */
-int FlowTable::resolveGateway(const IPAddress& gateway,
-                              const Interface& iface) {
-    if (is_port_down(iface.port)) {
-        return -1;
-    }
-
-    string gateway_str = gateway.toString();
-
-    // If we already initiated neighbour discovery for this gateway, return.
-    boost::lock_guard<boost::mutex> lock(ndMutex);
-    if (pendingNeighbours.find(gateway_str) != pendingNeighbours.end()) {
-        return 0;
-    }
-
-    // Otherwise, we should go ahead and begin the process.
-    int sock = initiateND(gateway_str.c_str());
-    if (sock == -1) {
-        return -1;
-    }
-    FlowTable::pendingNeighbours[gateway_str] = sock;
-
-    return 0;
-}
 
 /**
  * Find the MAC Address for the given host in a thread-safe manner.
@@ -567,12 +541,12 @@ int FlowTable::resolveGateway(const IPAddress& gateway,
 const MACAddress& FlowTable::findHost(const IPAddress& host) {
     boost::lock_guard<boost::mutex> lock(hostTableMutex);
     map<string, HostEntry>::iterator iter;
-    iter = FlowTable::hostTable.find(host.toString());
-    if (iter != FlowTable::hostTable.end()) {
+    iter = hostTable.find(host.toString());
+    if (iter != hostTable.end()) {
         return iter->second.hwaddress;
     }
 
-    return FlowTable::MAC_ADDR_NONE;
+    return MAC_ADDR_NONE;
 }
 
 bool FlowTable::is_port_down(uint32_t port) {
@@ -583,8 +557,7 @@ bool FlowTable::is_port_down(uint32_t port) {
     return false;
 }
 
-int FlowTable::setEthernet(RouteMod& rm, const Interface& local_iface,
-                           const MACAddress& gateway) {
+int FlowTable::setEthernet(RouteMod& rm, const Interface& local_iface, const MACAddress& gateway) {
     /* RFServer adds the Ethernet match to the flow, so we don't need to. */
     // rm.add_match(Match(RFMT_ETHERNET, local_iface.hwaddress));
 
@@ -596,9 +569,8 @@ int FlowTable::setEthernet(RouteMod& rm, const Interface& local_iface,
     return 0;
 }
 
-int FlowTable::setIP(RouteMod& rm, const IPAddress& addr,
-                     const IPAddress& mask) {
-     if (addr.getVersion() == IPV4) {
+int FlowTable::setIP(RouteMod& rm, const IPAddress& addr, const IPAddress& mask) {
+    if (addr.getVersion() == IPV4) {
         rm.add_match(Match(RFMT_IPV4, addr, mask));
     } else if (addr.getVersion() == IPV6) {
         rm.add_match(Match(RFMT_IPV6, addr, mask));
@@ -606,7 +578,6 @@ int FlowTable::setIP(RouteMod& rm, const IPAddress& addr,
         fprintf(stderr, "Cannot send route with unsupported IP version\n");
         return -1;
     }
-
     uint16_t priority = PRIORITY_LOW;
     priority += (mask.toPrefixLen() * PRIORITY_BAND);
     rm.add_option(Option(RFOT_PRIORITY, priority));
@@ -617,11 +588,10 @@ int FlowTable::setIP(RouteMod& rm, const IPAddress& addr,
 int FlowTable::sendToHw(RouteModType mod, const RouteEntry& re) {
     const string gateway_str = re.gateway.toString();
     if (mod == RMT_DELETE) {
-        return sendToHw(mod, re.address, re.netmask, re.interface,
-                        FlowTable::MAC_ADDR_NONE);
+        return sendToHw(mod, re.address, re.netmask, re.interface, MAC_ADDR_NONE);
     } else if (mod == RMT_ADD) {
         const MACAddress& remoteMac = findHost(re.gateway);
-        if (remoteMac == FlowTable::MAC_ADDR_NONE) {
+        if (remoteMac == MAC_ADDR_NONE) {
             fprintf(stderr, "Cannot Resolve %s\n", gateway_str.c_str());
             return -1;
         }
@@ -647,9 +617,7 @@ int FlowTable::sendToHw(RouteModType mod, const HostEntry& he) {
     return sendToHw(mod, he.address, *mask.get(), he.interface, he.hwaddress);
 }
 
-int FlowTable::sendToHw(RouteModType mod, const IPAddress& addr,
-                         const IPAddress& mask, const Interface& local_iface,
-                         const MACAddress& gateway) {
+int FlowTable::sendToHw(RouteModType mod, const IPAddress& addr, const IPAddress& mask, const Interface& local_iface, const MACAddress& gateway) {
     if (is_port_down(local_iface.port)) {
         fprintf(stderr, "Cannot send RouteMod for down port\n");
         return -1;
@@ -658,7 +626,7 @@ int FlowTable::sendToHw(RouteModType mod, const IPAddress& addr,
     RouteMod rm;
 
     rm.set_mod(mod);
-    rm.set_id(FlowTable::vm_id);
+    rm.set_id(vm_id);
 
     if (setEthernet(rm, local_iface, gateway) != 0) {
         return -1;
@@ -671,9 +639,10 @@ int FlowTable::sendToHw(RouteModType mod, const IPAddress& addr,
      * the port to determine which datapath to send to. */
     rm.add_action(Action(RFAT_OUTPUT, local_iface.port));
 
-    FlowTable::ipc->send(RFCLIENT_RFSERVER_CHANNEL, RFSERVER_ID, rm);
+    ipc->send(RFCLIENT_RFSERVER_CHANNEL, RFSERVER_ID, rm);
     return 0;
 }
+
 
 #ifdef FPM_ENABLED
 /*
@@ -693,7 +662,7 @@ void FlowTable::updateNHLFE(nhlfe_msg_t *nhlfe_msg) {
         std::cerr << "Unrecognised NHLFE table operation" << std::endl;
         return;
     }
-    msg.set_id(FlowTable::vm_id);
+    msg.set_id(vm_id);
 
     // We need the next-hop IP to determine which interface to use.
     int version = nhlfe_msg->ip_version;
@@ -703,8 +672,8 @@ void FlowTable::updateNHLFE(nhlfe_msg_t *nhlfe_msg) {
     // Get our interface for packet egress.
     Interface iface;
     map<string, HostEntry>::iterator iter;
-    iter = FlowTable::hostTable.find(gwIP.toString());
-    if (iter == FlowTable::hostTable.end()) {
+    iter = hostTable.find(gwIP.toString());
+    if (iter == hostTable.end()) {
         std::cerr << "Failed to locate interface for LSP" << std::endl;
         return;
     } else {
@@ -718,7 +687,7 @@ void FlowTable::updateNHLFE(nhlfe_msg_t *nhlfe_msg) {
 
     // Get the MAC address corresponding to our gateway.
     const MACAddress& gwMAC = findHost(gwIP);
-    if (gwMAC == FlowTable::MAC_ADDR_NONE) {
+    if (gwMAC == MAC_ADDR_NONE) {
         std::cerr << "Failed to resolve gwMAC IP for NHLFE" << std::endl;
         return;
     }
@@ -743,7 +712,7 @@ void FlowTable::updateNHLFE(nhlfe_msg_t *nhlfe_msg) {
 
     msg.add_action(Action(RFAT_OUTPUT, iface.port));
 
-    FlowTable::ipc->send(RFCLIENT_RFSERVER_CHANNEL, RFSERVER_ID, msg);
+    ipc->send(RFCLIENT_RFSERVER_CHANNEL, RFSERVER_ID, msg);
 
     return;
 }
