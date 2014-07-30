@@ -74,6 +74,20 @@ size_t Match::type_to_length(uint8_t type) {
     }
 }
 
+const ip_match* Match::getIPv4() const {
+    if(this->getLength() < sizeof(ip_match)) {
+        return NULL;
+    }
+    return reinterpret_cast<const ip_match*>(this->getValue());
+}
+
+const ip6_match* Match::getIPv6() const {
+    if(this->getLength() < sizeof(ip6_match)) {
+        return NULL;
+    }
+    return reinterpret_cast<const ip6_match*>(this->getValue());
+}
+
 /**
  * Determine what byte-order the type is stored in internally
  */

@@ -120,6 +120,21 @@ uint64_t get_interface_id(const char *ifname) {
     return id;
 }
 
+/*
+int addattr_l(struct nlmsghdr *n, int maxlen, int type, void *data, int alen) {
+    int len = RTA_LENGTH(alen);
+    struct rtattr *rta;
+
+    if(NLMSG_ALIGN(n->nlmsg_len) + len > maxlen) return -1;
+    rta = (struct rtattr*)(((char*)n) + NLMSG_ALIGN(n->nlmsg_len));
+    rta->rta_type = type;
+    rta->rta_len = len;
+    memcpy(RTA_DATA(rta), data, alen);
+    n->nlmsg_len = NLMSG_ALIGN(n->nlmsg_len) + len;
+    return 0;
+}
+*/
+
 void startFlowTable(FlowTable *table) {
     table->start();
 }
@@ -128,6 +143,11 @@ RFClient::RFClient(uint64_t id, const string &address) {
     this->id = id;
     syslog(LOG_INFO, "Starting RFClient (vm_id=%s)", to_string<uint64_t>(this->id).c_str());
     ipc = (IPCMessageService*) new MongoIPCMessageService(address, MONGO_DB_NAME, to_string<uint64_t>(this->id));
+
+    if(rtnl_open(&rth, 0) < 0){
+        fprintf(stderr, "cannot open rtnetlink\n");
+        exit(1);
+    }
 
     this->init_ports = 0;
     this->load_interfaces();
@@ -172,9 +192,112 @@ bool RFClient::process(const string &, const string &, const string &, IPCMessag
             down_ports.push_back(vm_port);
         }
     }
-    else
-        return false;
+    else if (type == ROUTE_MOD) {
+        RouteMod *rm= dynamic_cast<RouteMod*>(&msg);
+        if (rm->get_id() != id) {
+            fprintf(stderr, "Unexpected RouteMod Msg Target for VM %lld\n", rm->get_id());
+            return false;
+        }
+        uint8_t mod = rm->get_mod();
+        int cmd;
+        if (mod == RMT_ADD) {
+            cmd = RTM_NEWROUTE;
+        }
+        else if (mod == RMT_DELETE) {
+            cmd = RTM_DELROUTE;
+        }
+        else {
+            printf("Unexpected RouteMod Msg with mod=%d\n", mod);
+            return false;
+        }
+        std::vector<Match> matches = rm->get_matches();
+        std::vector<Action> actions = rm->get_actions();
+        std::vector<Option> options = rm->get_options();
 
+        int family = -1;
+        uint8_t *addr;
+        int prefixlen;
+        for(int i=0; i<matches.size(); i++){
+            if(matches[i].getType() == RFMT_IPV4){
+                family = AF_INET;
+                addr = new uint8_t[4];
+                const ip_match *net = matches[i].getIPv4();
+                memcpy(addr, &(net->addr), 4);
+                IPAddress mask(&(net->mask));
+                prefixlen = mask.toPrefixLen();
+            }
+            else if(matches[i].getType() == RFMT_IPV6){
+                family = AF_INET6;
+                addr = new uint8_t[16];
+                const ip6_match *net = matches[i].getIPv6();
+                memcpy(addr, &(net->addr), 16);
+                IPAddress mask(&(net->mask));
+                prefixlen = mask.toPrefixLen();
+            }
+        }
+        uint32_t oif = -1;
+        for(int i=0; i<actions.size(); i++){
+            if(actions[i].getType() == RFAT_OUTPUT){
+                oif = actions[i].getUint32();
+            }
+        }
+        uint16_t metric = 1;
+        for(int i=0; i<options.size(); i++){
+            if(options[i].getType() == RFOT_PRIORITY){
+                metric = options[i].getUint16();
+            }
+        }
+        if (family == -1 || oif == -1){
+            printf("Broken RouteMod: %s\n", rm->str().c_str());
+            delete addr;
+            return false;
+        }
+
+        delete addr;
+        return mod_route(cmd, family, addr, prefixlen, oif, metric);
+    }
+    else {
+        return false;
+    }
+
+    return true;
+}
+
+bool RFClient::mod_route(int cmd, int family, uint8_t *addr, int prefixlen, uint32_t oif, uint16_t metric) {
+    struct {
+        struct nlmsghdr n;
+        struct rtmsg r;
+        char buf[1024];
+    } req;
+    memset(&req, 0, sizeof(req));
+
+    int bytelen = (family == AF_INET ? 4:16);
+
+    //Init
+    req.n.nlmsg_len = NLMSG_LENGTH(sizeof(struct rtmsg));
+    req.n.nlmsg_flags = NLM_F_REQUEST | NLM_F_CREATE;
+    req.n.nlmsg_type = cmd;
+    req.r.rtm_family = family;
+    req.r.rtm_table = RT_TABLE_MAIN;
+
+    req.r.rtm_protocol = RTPROT_BOOT;
+    req.r.rtm_scope = RT_SCOPE_UNIVERSE;
+    req.r.rtm_type = RTN_UNICAST;
+
+    req.r.rtm_dst_len = prefixlen;
+    addattr_l(&req.n, sizeof(req), RTA_DST, addr, bytelen);
+    addattr_l(&req.n, sizeof(req), RTA_PRIORITY, &metric, 4);
+    addattr_l(&req.n, sizeof(req), RTA_OIF, &oif, 4);
+
+    //Optional
+    //addattr_l(&req.n, sizeof(req), RTA_GATEWAY, gateway, bytelen);
+    //addattr_l(&req.n, sizeof(req), RTA_PREFSRC, src, bytelen);
+
+    if(rtnl_talk(&rth, &req.n, 0, 0, NULL, NULL, NULL) < 0){
+        printf("rtnl_talk failed\n");
+        return false;
+    }
+    printf("mod_route\n");
     return true;
 }
 
@@ -391,3 +514,5 @@ int main(int argc, char* argv[]) {
 
     return 0;
 }
+
+

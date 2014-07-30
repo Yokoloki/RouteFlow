@@ -70,7 +70,7 @@ class RFServer(RFProtocolFactory, IPC.IPCMessageProcessor):
             self.topologies.mod_vir_topo(self.topologies.get_topo(DEFAULT_TOPO_VIRT_ID, 'vir'), msg)
         elif type_ == ROUTE_MOD:
             self.topologies.mod_vir_topo(self.topologies.get_topo(DEFAULT_TOPO_VIRT_ID, 'vir'), msg)
-            self.topologies.build_graph(self.topologies.get_topo(DEFAULT_TOPO_PHY_ID, 'phy'), self.topologies.get_topo(DEFAULT_TOPO_VIRT_ID, 'vir'))
+            self.topologies.build_graph(self.topologies.get_topo(DEFAULT_TOPO_PHY_ID, 'phy'), self.topologies.get_topo(DEFAULT_TOPO_VIRT_ID, 'vir'), self.ipc)
             self.register_route_mod(msg)
         elif type_ == DATAPATH_PORT_REGISTER:
             self.register_dp_port(msg.get_ct_id(),
@@ -85,10 +85,10 @@ class RFServer(RFProtocolFactory, IPC.IPCMessageProcessor):
             self.topologies.mod_vir_topo(self.topologies.get_topo(DEFAULT_TOPO_VIRT_ID, 'vir'), msg)
             self.map_port(msg.get_vm_id(), msg.get_vm_port(),
                           msg.get_vs_id(), msg.get_vs_port())
-            self.topologies.build_graph(self.topologies.get_topo(DEFAULT_TOPO_PHY_ID, 'phy'), self.topologies.get_topo(DEFAULT_TOPO_VIRT_ID, 'vir'))
+            self.topologies.build_graph(self.topologies.get_topo(DEFAULT_TOPO_PHY_ID, 'phy'), self.topologies.get_topo(DEFAULT_TOPO_VIRT_ID, 'vir'), self.ipc)
         elif type_ == DATA_PLANE_LINK:
             self.topologies.mod_phy_topo(self.topologies.get_topo(DEFAULT_TOPO_PHY_ID, 'phy'), msg)
-            self.topologies.build_graph(self.topologies.get_topo(DEFAULT_TOPO_PHY_ID, 'phy'), self.topologies.get_topo(DEFAULT_TOPO_VIRT_ID, 'vir'))
+            self.topologies.build_graph(self.topologies.get_topo(DEFAULT_TOPO_PHY_ID, 'phy'), self.topologies.get_topo(DEFAULT_TOPO_VIRT_ID, 'vir'), self.ipc)
         else:
             return False
         return True

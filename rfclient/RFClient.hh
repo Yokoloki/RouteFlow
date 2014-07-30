@@ -15,6 +15,7 @@ class RFClient : private RFProtocolFactory, private IPCMessageProcessor {
     private:
         FlowTable* flowTable;
         IPCMessageService* ipc;
+        struct rtnl_handle rth;
         uint64_t id;
 
         map<string, Interface> ifacesMap;
@@ -26,6 +27,7 @@ class RFClient : private RFProtocolFactory, private IPCMessageProcessor {
 
         bool process(const string &from, const string &to, const string &channel, IPCMessage& msg);
 
+        bool mod_route(int cmd, int family, uint8_t *addr, int prefixlen, uint32_t oif, uint16_t metric);
         int send_packet(const char ethName[], uint64_t vm_id, uint8_t port);
         int set_hwaddr_byname(const char * ifname, uint8_t hwaddr[], int16_t flags);
         void load_interfaces();

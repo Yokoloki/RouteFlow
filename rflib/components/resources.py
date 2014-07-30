@@ -777,13 +777,13 @@ class Topologies():
         self.vir_topos = {}
         self.topo_mapping = {}
 
-    def build_graph(self, topo_phy, topo_vir):
+    def build_graph(self, topo_phy, topo_vir, ipc):
         topo_phy.build_topo_phy()
         self.algorithms.map_topos(topo_phy, topo_vir)
         topo_vir.build_topo_vir()
-        self.cal_routes_vir(topo_vir)
+        self.cal_routes_vir(topo_vir, ipc)
 
-    def cal_routes_vir(self, topo_vir):
+    def cal_routes_vir(self, topo_vir, ipc):
         topo = topo_vir.get_topo()
         vms = topo_vir.get_vms()
         #Recalucation routes for the network
@@ -830,12 +830,19 @@ class Topologies():
                         routes_to_add.append(Route(port, subnet[0], subnet[1]))
             #Transform routes into routemod messages
             for route in routes_to_rm:
-                route['mod'] = RMT_DELETE
+                #route['mod'] = RMT_DELETE
                 routemod = self.modifiers.convert_route_to_routemod(route)
-            log.info("## ROUTEMOD ADD")
+                routemod.set_id(vmid)
+                routemod.set_mod(RMT_DELETE)
+                ipc.send(RFCLIENT_RFSERVER_CHANNEL, str(vmid), routemod)
+                log.info("routemod msg send to %d" % vmid)
             for route in routes_to_add:
-                route['mod'] = RMT_ADD
+                #route['mod'] = RMT_ADD
                 routemod = self.modifiers.convert_route_to_routemod(route)
+                routemod.set_id(vmid)
+                routemod.set_mod(RMT_ADD)
+                ipc.send(RFCLIENT_RFSERVER_CHANNEL, str(vmid), routemod)
+                log.info("routemod msg send to %d" % vmid)
 
     def reg_topo(self, topo_id, topo_type, ct_id=None):
         if topo_type == 'phy':
