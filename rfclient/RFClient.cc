@@ -200,10 +200,10 @@ bool RFClient::process(const string &, const string &, const string &, IPCMessag
         }
         uint8_t mod = rm->get_mod();
         int cmd;
-        if (mod == RMT_ADD) {
+        if (mod == RMT_ADD + 48) {
             cmd = RTM_NEWROUTE;
         }
-        else if (mod == RMT_DELETE) {
+        else if (mod == RMT_DELETE + 48) {
             cmd = RTM_DELROUTE;
         }
         else {
@@ -293,8 +293,9 @@ bool RFClient::mod_route(int cmd, int family, uint8_t *addr, int prefixlen, uint
     //addattr_l(&req.n, sizeof(req), RTA_GATEWAY, gateway, bytelen);
     //addattr_l(&req.n, sizeof(req), RTA_PREFSRC, src, bytelen);
 
-    if(rtnl_talk(&rth, &req.n, 0, 0, NULL, NULL, NULL) < 0){
-        printf("rtnl_talk failed\n");
+    int ret = rtnl_talk(&rth, &req.n, 0, 0, NULL, NULL, NULL);
+    if(ret < 0){
+        printf("rtnl_talk failed %d\n", ret);
         return false;
     }
     printf("mod_route\n");
