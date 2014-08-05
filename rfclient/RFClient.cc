@@ -252,9 +252,9 @@ bool RFClient::process(const string &, const string &, const string &, IPCMessag
             delete addr;
             return false;
         }
-
+        bool ret = mod_route(cmd, family, addr, prefixlen, oif, metric);
         delete addr;
-        return mod_route(cmd, family, addr, prefixlen, oif, metric);
+        return ret;
     }
     else {
         return false;
@@ -272,7 +272,7 @@ bool RFClient::mod_route(int cmd, int family, uint8_t *addr, int prefixlen, uint
     memset(&req, 0, sizeof(req));
 
     int bytelen = (family == AF_INET ? 4:16);
-
+    
     //Init
     req.n.nlmsg_len = NLMSG_LENGTH(sizeof(struct rtmsg));
     req.n.nlmsg_flags = NLM_F_REQUEST | NLM_F_CREATE;
