@@ -134,8 +134,9 @@ int FlowTable::updateHostTable(struct nlmsghdr *n) {
     memset(intf, 0, IF_NAMESIZE + 1);
 
     boost::this_thread::interruption_point();
+    unsigned int nd_if_idx = (unsigned int)ndmsg_ptr->ndm_ifindex;
 
-    if (if_indextoname((unsigned int) ndmsg_ptr->ndm_ifindex, (char *) intf) == NULL) {
+    if (if_indextoname(nd_if_idx, (char *) intf) == NULL) {
         perror("HostTable");
         return 0;
     }
@@ -205,9 +206,14 @@ int FlowTable::updateHostTable(struct nlmsghdr *n) {
                     pendingNeighbours.erase(host);
                 }
             }
-
-            std::cout << "netlink->RTM_NEWNEIGH: ip=" << host << ", mac=" << mac
-                      << std::endl;
+            printf("netlink->RTM_NEWNEIGH: intf=%s, ip=%s, mac=%s\n", intf, host.c_str(), mac);
+            boost::lock_guard<boost::mutex> lock(gwMutex);
+            if(ifidx_to_gw.find(nd_if_idx) != ifidx_to_gw.end()){
+                free(ifidx_to_gw[nd_if_idx]);
+                ifidx_to_gw.erase(nd_if_idx);
+            }
+            ifidx_to_gw[nd_if_idx] = (uint8_t*)malloc(sizeof(uint8_t) * 4);
+            hentry->address.toArray(ifidx_to_gw[nd_if_idx]);
             break;
         }
         /* TODO: enable this? It is causing serious problems. Why?
@@ -464,6 +470,15 @@ int FlowTable::resolveGateway(const IPAddress& gateway, const Interface& iface) 
         return -1;
     }
     pendingNeighbours[gateway_str] = sock;
+    return 0;
+}
+
+int FlowTable::getGatewayByIfidx(unsigned int idx, uint8_t *gw) {
+    boost::lock_guard<boost::mutex> lock(gwMutex);
+    if(ifidx_to_gw.find(idx) == ifidx_to_gw.end()){
+        return -1;
+    }
+    memcpy(gw, ifidx_to_gw[idx], 4);
     return 0;
 }
 

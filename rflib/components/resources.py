@@ -570,6 +570,11 @@ class VM():
                     return self.intfs[intfnum]
         return None
 
+    def get_addr_by_intf(self, intfnum):
+        if intfnum in self.intfs:
+            return self.intfs[intfnum]['address']
+        return None
+
     def add_addr(self, addr):
         if addr not in self.addrs:
             self.addrs.append(addr)

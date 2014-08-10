@@ -46,6 +46,7 @@ class FlowTable {
         int updateHostTable(struct nlmsghdr *n);
         int updateRouteTable(struct nlmsghdr *n);
         void resolveGateways();
+        int getGatewayByIfidx(unsigned int idx, uint8_t *gw);
 
 
 
@@ -88,6 +89,9 @@ class FlowTable {
 
         boost::mutex ndMutex;
         map<string, int> pendingNeighbours;
+
+        boost::mutex gwMutex;
+        map<unsigned int, uint8_t*> ifidx_to_gw;
 
         bool is_port_down(uint32_t port);
         int getInterface(const char *intf, const char *type,

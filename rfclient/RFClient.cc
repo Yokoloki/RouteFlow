@@ -120,21 +120,6 @@ uint64_t get_interface_id(const char *ifname) {
     return id;
 }
 
-/*
-int addattr_l(struct nlmsghdr *n, int maxlen, int type, void *data, int alen) {
-    int len = RTA_LENGTH(alen);
-    struct rtattr *rta;
-
-    if(NLMSG_ALIGN(n->nlmsg_len) + len > maxlen) return -1;
-    rta = (struct rtattr*)(((char*)n) + NLMSG_ALIGN(n->nlmsg_len));
-    rta->rta_type = type;
-    rta->rta_len = len;
-    memcpy(RTA_DATA(rta), data, alen);
-    n->nlmsg_len = NLMSG_ALIGN(n->nlmsg_len) + len;
-    return 0;
-}
-*/
-
 void startFlowTable(FlowTable *table) {
     table->start();
 }
@@ -284,21 +269,51 @@ bool RFClient::mod_route(int cmd, int family, uint8_t *addr, int prefixlen, uint
     req.r.rtm_scope = RT_SCOPE_UNIVERSE;
     req.r.rtm_type = RTN_UNICAST;
 
+    if(cmd == RTM_DELROUTE){
+        req.r.rtm_scope = RT_SCOPE_NOWHERE;
+        printf("RTM_DELROUTE ");
+    }
+    else{
+        req.n.nlmsg_len |= NLM_F_REPLACE;
+        req.r.rtm_scope = RT_SCOPE_UNIVERSE;
+        req.r.rtm_protocol = RTPROT_BOOT;
+        req.r.rtm_type = RTN_UNICAST;
+        printf("RTM_NEWROUTE ");
+    }
+
     req.r.rtm_dst_len = prefixlen;
+    printf("RTA_DST = %d.%d.%d.%d/%d,", addr[0], addr[1], addr[2], addr[3], prefixlen);
     addattr_l(&req.n, sizeof(req), RTA_DST, addr, bytelen);
-    addattr_l(&req.n, sizeof(req), RTA_PRIORITY, &metric, 4);
-    addattr_l(&req.n, sizeof(req), RTA_OIF, &oif, 4);
+    //printf("RTA_PRIORITY=%d, ", metric);
+    //addattr32(&req.n, sizeof(req), RTA_PRIORITY, metric);
+    
+    char ifname[10];
+    sprintf(ifname, "eth%d", oif);
+    int idx = if_nametoindex(ifname);
+    if(idx == 0){
+        printf("if_nametoindex error: %d", idx);
+        return false;
+    }
+    printf("RTA_OIF=%d,", idx);
+    addattr32(&req.n, sizeof(req), RTA_OIF, idx);
 
-    //Optional
-    //addattr_l(&req.n, sizeof(req), RTA_GATEWAY, gateway, bytelen);
-    //addattr_l(&req.n, sizeof(req), RTA_PREFSRC, src, bytelen);
+    uint8_t gateway[bytelen];
+    int ret = flowTable->getGatewayByIfidx(idx, gateway);
+    if(ret != 0){
+        printf("Cannot resolve gateway for %s\n", ifname);
+        return false;
+    }
+    else{
+        printf("Resolved gw = %d.%d.%d.%d\n", gateway[0], gateway[1], gateway[2], gateway[3]);
+    }
+    addattr_l(&req.n, sizeof(req), RTA_GATEWAY, gateway, bytelen);
 
-    int ret = rtnl_talk(&rth, &req.n, 0, 0, NULL, NULL, NULL);
+    ret = rtnl_talk(&rth, &req.n, 0, 0, NULL, NULL, NULL);
     if(ret < 0){
         printf("rtnl_talk failed %d\n", ret);
         return false;
     }
-    printf("mod_route\n");
+    printf("mod_route succ\n");
     return true;
 }
 
