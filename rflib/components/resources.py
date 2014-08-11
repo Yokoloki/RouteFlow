@@ -797,7 +797,7 @@ class Topologies():
         for src in paths:
             new_routes[src] = ddict(list)
             for dst in paths[src]:
-                if src == dst: continue
+                if src == dst or len(paths[src][dst]) < 3: continue
                 for subnet in vms[dst].get_subnets():
                     next_hop = paths[src][dst][1]
                     link = Link.from_dict(topo.get_edge_data(src, next_hop))

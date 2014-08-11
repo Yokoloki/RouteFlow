@@ -249,6 +249,14 @@ bool RFClient::process(const string &, const string &, const string &, IPCMessag
 }
 
 bool RFClient::mod_route(int cmd, int family, uint8_t *addr, int prefixlen, uint32_t oif, uint16_t metric) {
+    static set<uint64_t> routes;
+    uint64_t dst = 0;
+    for(int i=0; i<4; i++){
+        dst += addr[i];
+        dst = dst << 8;
+    }
+    dst += prefixlen;
+
     struct {
         struct nlmsghdr n;
         struct rtmsg r;
@@ -274,7 +282,10 @@ bool RFClient::mod_route(int cmd, int family, uint8_t *addr, int prefixlen, uint
         printf("RTM_DELROUTE ");
     }
     else{
-        req.n.nlmsg_len |= NLM_F_REPLACE;
+        if(routes.find(dst) != routes.end())
+            req.n.nlmsg_len |= NLM_F_REPLACE;
+        else
+            routes.insert(dst);
         req.r.rtm_scope = RT_SCOPE_UNIVERSE;
         req.r.rtm_protocol = RTPROT_BOOT;
         req.r.rtm_type = RTN_UNICAST;
@@ -297,6 +308,7 @@ bool RFClient::mod_route(int cmd, int family, uint8_t *addr, int prefixlen, uint
     printf("RTA_OIF=%d,", idx);
     addattr32(&req.n, sizeof(req), RTA_OIF, idx);
 
+    /*
     uint8_t gateway[bytelen];
     int ret = flowTable->getGatewayByIfidx(idx, gateway);
     if(ret != 0){
@@ -307,8 +319,9 @@ bool RFClient::mod_route(int cmd, int family, uint8_t *addr, int prefixlen, uint
         printf("Resolved gw = %d.%d.%d.%d\n", gateway[0], gateway[1], gateway[2], gateway[3]);
     }
     addattr_l(&req.n, sizeof(req), RTA_GATEWAY, gateway, bytelen);
+    */
 
-    ret = rtnl_talk(&rth, &req.n, 0, 0, NULL, NULL, NULL);
+    int ret = rtnl_talk(&rth, &req.n, 0, 0, NULL, NULL, NULL);
     if(ret < 0){
         printf("rtnl_talk failed %d\n", ret);
         return false;
