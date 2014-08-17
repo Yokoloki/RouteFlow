@@ -797,8 +797,10 @@ class Topologies():
         for src in paths:
             new_routes[src] = ddict(list)
             for dst in paths[src]:
-                if src == dst or len(paths[src][dst]) < 3: continue
+                if src == dst: continue
                 for subnet in vms[dst].get_subnets():
+                    #Avoid introducing loop when ARP resolve failed
+                    if subnet in vms[src].get_subnets(): continue
                     next_hop = paths[src][dst][1]
                     link = Link.from_dict(topo.get_edge_data(src, next_hop))
                     new_routes[src][link.get_port(src)].append(subnet)
@@ -833,6 +835,7 @@ class Topologies():
                             break
                     if not exist:
                         routes_to_add.append(Route(port, subnet[0], subnet[1]))
+            return
             #Transform routes into routemod messages
             for route in routes_to_rm:
                 #route['mod'] = RMT_DELETE

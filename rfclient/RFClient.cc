@@ -286,14 +286,11 @@ bool RFClient::mod_route(int cmd, int family, uint8_t *addr, int prefixlen, uint
             req.n.nlmsg_len |= NLM_F_REPLACE;
         else
             routes.insert(dst);
-        req.r.rtm_scope = RT_SCOPE_UNIVERSE;
-        req.r.rtm_protocol = RTPROT_BOOT;
-        req.r.rtm_type = RTN_UNICAST;
         printf("RTM_NEWROUTE ");
     }
 
     req.r.rtm_dst_len = prefixlen;
-    printf("RTA_DST = %d.%d.%d.%d/%d,", addr[0], addr[1], addr[2], addr[3], prefixlen);
+    //printf("RTA_DST = %d.%d.%d.%d/%d,", addr[0], addr[1], addr[2], addr[3], prefixlen);
     addattr_l(&req.n, sizeof(req), RTA_DST, addr, bytelen);
     //printf("RTA_PRIORITY=%d, ", metric);
     //addattr32(&req.n, sizeof(req), RTA_PRIORITY, metric);
@@ -305,7 +302,7 @@ bool RFClient::mod_route(int cmd, int family, uint8_t *addr, int prefixlen, uint
         printf("if_nametoindex error: %d", idx);
         return false;
     }
-    printf("RTA_OIF=%d,", idx);
+    //printf("RTA_OIF=%d,", idx);
     addattr32(&req.n, sizeof(req), RTA_OIF, idx);
 
     /*
@@ -326,7 +323,7 @@ bool RFClient::mod_route(int cmd, int family, uint8_t *addr, int prefixlen, uint
         printf("rtnl_talk failed %d\n", ret);
         return false;
     }
-    printf("mod_route succ\n");
+    //printf("mod_route succ\n");
     return true;
 }
 
