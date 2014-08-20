@@ -1,5 +1,6 @@
 #include <net/if.h>
 #include <map>
+#include <set>
 #include <vector>
 
 #include "ipc/IPC.h"
@@ -21,6 +22,7 @@ class RFClient : private RFProtocolFactory, private IPCMessageProcessor {
         map<string, Interface> ifacesMap;
         map<int, Interface> interfaces;
         vector<uint32_t> down_ports;
+        set<uint64_t> routes;
 
         uint8_t hwaddress[IFHWADDRLEN];
         int init_ports;

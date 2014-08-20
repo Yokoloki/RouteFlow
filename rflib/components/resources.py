@@ -792,6 +792,10 @@ class Topologies():
         topo = topo_vir.get_topo()
         vms = topo_vir.get_vms()
         #Recalucation routes for the network
+        log.info("#######################")
+        for line in nx.generate_edgelist(topo):
+            log.info(line)
+        log.info("#######################")
         paths = nx.shortest_path(topo)
         new_routes = {}
         for src in paths:
@@ -803,12 +807,14 @@ class Topologies():
                 candidate = ddict(dict)
                 for subnet in vms[dst].get_subnets():
                     next_hop = paths[src][dst][1]
-                    link = Link.from_dict(topo.get_edge_data(src, next_hop))
+                    port = Link.from_dict(topo.get_edge_data(src, next_hop)).get_port(src)
+                    if (port == -1):
+                        log.info("###Error: Cannot resolve port from %s to %s" % (src, dst))
                     if subnet not in candidate:
-                        candidate[subnet]['port'] = link.get_port(src)
+                        candidate[subnet]['port'] = port
                         candidate[subnet]['hop'] = len(paths[src][dst])
                     elif len(paths[src][dst]) < candidate[subnet]['hop']:
-                        candidate[subnet]['port'] = link.get_port(src)
+                        candidate[subnet]['port'] = port
                         candidate[subnet]['hop'] = len(paths[src][dst])
                 for subnet in candidate.keys():
                     #Avoid introducing loop when ARP resolve failed
@@ -821,11 +827,11 @@ class Topologies():
             #Delete routes no longer exist
             routes_to_rm = []
             for port in exist_routes.keys():
-                if port not in new_routes.keys():
+                if port not in new_routes[vmid].keys():
                     for route in exist_routes[port]:
                         routes_to_rm.append(route)
                     continue
-                for route in exist_routes[vmid][port]:
+                for route in exist_routes[port]:
                     exist_subnet = (route['matches']['address'], route['matches']['netmask'])
                     if exist_subnet not in new_routes[vmid][port]:
                         routes_to_rm.append(route)
@@ -834,8 +840,7 @@ class Topologies():
             for port in new_routes[vmid].keys():
                 if port not in exist_routes.keys():
                     for subnet in new_routes[vmid][port]:
-                        route = Route(port, subnet[0], subnet[1])
-                        routes_to_add.append(route)
+                        routes_to_add.append(Route(port, subnet[0], subnet[1]))
                     continue
                 for subnet in new_routes[vmid][port]:
                     exist = False
@@ -847,19 +852,28 @@ class Topologies():
                         routes_to_add.append(Route(port, subnet[0], subnet[1]))
             #Transform routes into routemod messages
             for route in routes_to_rm:
-                #route['mod'] = RMT_DELETE
+                vms[vmid].rm_route(route)
                 routemod = self.modifiers.convert_route_to_routemod(route)
                 routemod.set_id(vmid)
                 routemod.set_mod(RMT_DELETE)
                 ipc.send(RFCLIENT_RFSERVER_CHANNEL, str(vmid), routemod)
-                log.info("routemod msg send to %d" % vmid)
+                msg = "%d: delroute to %s,%s via eth%d" % (vmid, route['matches']['address'], route['matches']['netmask'], route['actions']['dst_port'])
+                log.info("routemod %s" % msg)
             for route in routes_to_add:
-                #route['mod'] = RMT_ADD
+                vms[vmid].add_route(route)
                 routemod = self.modifiers.convert_route_to_routemod(route)
                 routemod.set_id(vmid)
                 routemod.set_mod(RMT_ADD)
                 ipc.send(RFCLIENT_RFSERVER_CHANNEL, str(vmid), routemod)
-                log.info("routemod msg send to %d" % vmid)
+                msg = "%d: newroute to %s,%s via eth%d" % (vmid, route['matches']['address'], route['matches']['netmask'], route['actions']['dst_port'])
+                log.info("routemod %s" % msg)
+            #Print out routes after making these changes
+            log.info("\t####ROUTE TABLE FOR VM%d####" % vmid)
+            rtable = vms[vmid].get_routes()
+            for port in rtable.keys():
+                for route in rtable[port]:
+                    log.info("\t\teth%d %s %s" % (port, route['matches']['address'], route['matches']['netmask']))
+
 
     def reg_topo(self, topo_id, topo_type, ct_id=None):
         if topo_type == 'phy':

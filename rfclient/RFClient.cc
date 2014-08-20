@@ -237,6 +237,22 @@ bool RFClient::process(const string &, const string &, const string &, IPCMessag
             delete addr;
             return false;
         }
+        uint64_t dst = 0;
+        for(int i=0; i<4; i++){
+            dst += addr[i];
+            dst = dst << 8;
+        }
+        dst += prefixlen;
+        if(cmd == RTM_NEWROUTE){
+            if(routes.find(dst) != routes.end()){
+                mod_route(RTM_DELROUTE, family, addr, prefixlen, oif, metric);
+            }
+            routes.insert(dst);
+        }
+        else{
+            routes.erase(dst);
+        }
+
         bool ret = mod_route(cmd, family, addr, prefixlen, oif, metric);
         delete addr;
         return ret;
@@ -249,14 +265,6 @@ bool RFClient::process(const string &, const string &, const string &, IPCMessag
 }
 
 bool RFClient::mod_route(int cmd, int family, uint8_t *addr, int prefixlen, uint32_t oif, uint16_t metric) {
-    static set<uint64_t> routes;
-    uint64_t dst = 0;
-    for(int i=0; i<4; i++){
-        dst += addr[i];
-        dst = dst << 8;
-    }
-    dst += prefixlen;
-
     struct {
         struct nlmsghdr n;
         struct rtmsg r;
@@ -268,42 +276,35 @@ bool RFClient::mod_route(int cmd, int family, uint8_t *addr, int prefixlen, uint
     
     //Init
     req.n.nlmsg_len = NLMSG_LENGTH(sizeof(struct rtmsg));
-    req.n.nlmsg_flags = NLM_F_REQUEST | NLM_F_CREATE;
+    req.n.nlmsg_flags = NLM_F_REQUEST;
     req.n.nlmsg_type = cmd;
     req.r.rtm_family = family;
     req.r.rtm_table = RT_TABLE_MAIN;
 
-    req.r.rtm_protocol = RTPROT_BOOT;
-    req.r.rtm_scope = RT_SCOPE_UNIVERSE;
+    req.r.rtm_scope = RT_SCOPE_NOWHERE;
     req.r.rtm_type = RTN_UNICAST;
-
-    if(cmd == RTM_DELROUTE){
-        req.r.rtm_scope = RT_SCOPE_NOWHERE;
-        printf("RTM_DELROUTE ");
-    }
-    else{
-        if(routes.find(dst) != routes.end())
-            req.n.nlmsg_len |= NLM_F_REPLACE;
-        else
-            routes.insert(dst);
+   
+    if(cmd == RTM_NEWROUTE){
+        req.n.nlmsg_len |= (NLM_F_CREATE | NLM_F_EXCL);
+        req.r.rtm_protocol = RTPROT_BOOT;
+        req.r.rtm_scope = RT_SCOPE_UNIVERSE;
+        req.r.rtm_dst_len = prefixlen;
+        addattr_l(&req.n, sizeof(req), RTA_DST, addr, bytelen);
+        char ifname[10];
+        sprintf(ifname, "eth%d", oif);
+        int idx = if_nametoindex(ifname);
+        if(idx == 0){
+            printf("if_nametoindex error: %d", idx);
+            return false;
+        }
+        addattr32(&req.n, sizeof(req), RTA_OIF, idx);
         printf("RTM_NEWROUTE ");
     }
-
-    req.r.rtm_dst_len = prefixlen;
-    //printf("RTA_DST = %d.%d.%d.%d/%d,", addr[0], addr[1], addr[2], addr[3], prefixlen);
-    addattr_l(&req.n, sizeof(req), RTA_DST, addr, bytelen);
-    //printf("RTA_PRIORITY=%d, ", metric);
-    //addattr32(&req.n, sizeof(req), RTA_PRIORITY, metric);
-    
-    char ifname[10];
-    sprintf(ifname, "eth%d", oif);
-    int idx = if_nametoindex(ifname);
-    if(idx == 0){
-        printf("if_nametoindex error: %d", idx);
-        return false;
+    else{
+        req.r.rtm_dst_len = prefixlen;
+        addattr_l(&req.n, sizeof(req), RTA_DST, addr, bytelen);
+        printf("RTM_DELROUTE ");
     }
-    //printf("RTA_OIF=%d,", idx);
-    addattr32(&req.n, sizeof(req), RTA_OIF, idx);
 
     /*
     uint8_t gateway[bytelen];
@@ -323,7 +324,6 @@ bool RFClient::mod_route(int cmd, int family, uint8_t *addr, int prefixlen, uint
         printf("rtnl_talk failed %d\n", ret);
         return false;
     }
-    //printf("mod_route succ\n");
     return true;
 }
 
