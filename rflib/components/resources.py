@@ -796,14 +796,24 @@ class Topologies():
         new_routes = {}
         for src in paths:
             new_routes[src] = ddict(list)
-            for dst in paths[src]:
+            #Make sure destination VMs are sorted so that routes can converged
+            dsts = sorted(paths[src].keys())
+            for dst in dsts:
                 if src == dst: continue
+                candidate = ddict(dict)
                 for subnet in vms[dst].get_subnets():
-                    #Avoid introducing loop when ARP resolve failed
-                    if subnet in vms[src].get_subnets(): continue
                     next_hop = paths[src][dst][1]
                     link = Link.from_dict(topo.get_edge_data(src, next_hop))
-                    new_routes[src][link.get_port(src)].append(subnet)
+                    if subnet not in candidate:
+                        candidate[subnet]['port'] = link.get_port(src)
+                        candidate[subnet]['hop'] = len(paths[src][dst])
+                    elif len(paths[src][dst]) < candidate[subnet]['hop']:
+                        candidate[subnet]['port'] = link.get_port(src)
+                        candidate[subnet]['hop'] = len(paths[src][dst])
+                for subnet in candidate.keys():
+                    #Avoid introducing loop when ARP resolve failed
+                    if subnet in vms[src].get_subnets(): continue
+                    new_routes[src][candidate[subnet]['port']].append(subnet)
 
         #Compare new routes with existing routes
         for vmid in vms.keys():
@@ -835,7 +845,6 @@ class Topologies():
                             break
                     if not exist:
                         routes_to_add.append(Route(port, subnet[0], subnet[1]))
-            return
             #Transform routes into routemod messages
             for route in routes_to_rm:
                 #route['mod'] = RMT_DELETE
